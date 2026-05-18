@@ -1,0 +1,5 @@
+.cache/
+build/
+.loglogin
+*.local
+compile_commands.json
