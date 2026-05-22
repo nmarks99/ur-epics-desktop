@@ -80,7 +80,7 @@ void UR::unload() {
     loaded_ = false;
 }
 
-void UR::update(const std::vector<float> &joint_angles) {
+void UR::update(const std::vector<double> &joint_angles) {
     if (not loaded_) {
         return;
     }
@@ -98,6 +98,25 @@ void UR::update(const std::vector<float> &joint_angles) {
                                              wrist2_.model.transform);
     tool_.model.transform = MatrixMultiply(tfs_.at(7), wrist3_.model.transform);
 }
+
+// void UR::update(const std::vector<float> &joint_angles) {
+    // if (not loaded_) {
+        // return;
+    // }
+    // shoulder_.model.transform =
+        // MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(0)), tfs_.at(1)), base_.model.transform);
+    // upperarm_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(1)), tfs_.at(2)),
+                                               // shoulder_.model.transform);
+    // forearm_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(2)), tfs_.at(3)),
+                                              // upperarm_.model.transform);
+    // wrist1_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(3)), tfs_.at(4)),
+                                             // forearm_.model.transform);
+    // wrist2_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(4)), tfs_.at(5)),
+                                             // wrist1_.model.transform);
+    // wrist3_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(5)), tfs_.at(6)),
+                                             // wrist2_.model.transform);
+    // tool_.model.transform = MatrixMultiply(tfs_.at(7), wrist3_.model.transform);
+// }
 
 void UR::draw() {
     if (not loaded_) {

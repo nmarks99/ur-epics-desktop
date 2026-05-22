@@ -34,7 +34,8 @@ class UR {
     void draw(int mask, bool opaque = false);
     void draw_axes();
     void draw_axes(int mask);
-    void update(const std::vector<float> &joint_angles);
+    // void update(const std::vector<float> &joint_angles);
+    void update(const std::vector<double> &joint_angles);
     void load(URVersion version);
     void unload();
 
