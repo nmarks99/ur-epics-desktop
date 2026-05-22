@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.22)
 
-project(epics-imgui)
+project(ur-epics-desktop)
 
 # Generate compile_commands.json for LSP's
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -12,7 +12,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Build options
 option(FETCH_RAYLIB "Fetch raylib using FetchContent" ON)
-option(FETCH_IMGUI "Fetch imgui using FetchContent" ON)
+option(FETCH_IMGUI "Fetch ImGui using FetchContent" ON)
+option(FETCH_RLIMGUI "Fetch rlImGui using FetchContent" ON)
 option(EPICS_STATIC "Link EPICS libraries statically" OFF)
 
 # --- EPICS Base ---------------------------------------------------------------
@@ -80,7 +81,7 @@ endforeach()
 # ------------------------------------------------------------------------------
 
 # FetchContent for getting dependencies
-if (FETCH_RAYLIB OR FETCH_IMGUI)
+if (FETCH_RAYLIB OR FETCH_IMGUI OR FETCH_RLIMGUI)
     include(FetchContent)
     set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
     set(FETCHCONTENT_QUIET OFF)
@@ -111,7 +112,7 @@ endif()
 if (FETCH_IMGUI)
     FetchContent_Declare(imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG         docking 
+        GIT_TAG         docking
         GIT_SHALLOW     TRUE
         GIT_PROGRESS    TRUE
     )
@@ -131,20 +132,45 @@ if (FETCH_IMGUI)
     )
 endif()
 
+# Clone rlImGui from GitHub, or find it on the system
+if (FETCH_RLIMGUI)
+    message(STATUS "Cloning rlImGui using FetchContent.")
+    FetchContent_Declare(rlimgui
+        GIT_REPOSITORY https://github.com/raylib-extras/rlImGui
+        GIT_TAG         main
+        GIT_SHALLOW     TRUE
+        GIT_PROGRESS    TRUE
+    )
+    FetchContent_MakeAvailable(rlimgui)
+else()
+    message(STATUS "Attempting to find rlimgui on the system.")
+    find_package(rlimgui REQUIRED STATIC CONFIG HINTS ${rlimgui_DIR})
+    if(rlimgui_FOUND)
+        message(STATUS "rlimgui found!")
+        message(STATUS "rlimgui DIR: ${rlimgui_DIR}")
+    else()
+        message(FATAL_ERROR "rlimgui not found on your system. Please install it or enable -DFETCH_RLIMGUI=ON.")
+    endif()
+endif()
+
 #####################################################
-add_executable(epics-imgui
+add_executable(ur-epics-desktop
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui/rlImGui.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ur.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rl_utils.cpp
+    # ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui/rlImGui.cpp
+    ${rlimgui_SOURCE_DIR}/rlImGui.cpp
 )
 
-target_include_directories(epics-imgui PRIVATE
+target_include_directories(ur-epics-desktop PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui
+    # ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui
+    ${rlimgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}
     ${EPICS_BASE_INCLUDES}
 )
 
-target_link_libraries(epics-imgui PRIVATE
+target_link_libraries(ur-epics-desktop PRIVATE
     raylib
     imgui
     ${EPICS_BASE_LIBRARIES}
