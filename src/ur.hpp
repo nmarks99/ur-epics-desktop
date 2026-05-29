@@ -6,13 +6,15 @@
 #include "rl_utils.hpp"
 #include "raymath.h"
 
-
 inline std::filesystem::path get_resource_dir() {
-    if (const char* env = std::getenv("URVIEWER_RESOURCE_DIR")) {
+#ifndef UR_RESOURCE_DIR
+    if (const char* env = std::getenv("UR_RESOURCE_DIR")) {
         return std::filesystem::path(env);
     } else {
-        throw std::runtime_error("URVIEWER_RESOURCE_DIR not set");
+        throw std::runtime_error("UR_RESOURCE_DIR not set");
     }
+#endif
+    return std::filesystem::path(UR_RESOURCE_DIR);
 }
 
 constexpr int UR_NUM_AXES = 6;
@@ -34,10 +36,7 @@ class UR {
     void draw(int mask, bool opaque = false);
     void draw_axes();
     void draw_axes(int mask);
-    // void update(const std::vector<float> &joint_angles);
     void update(const std::vector<double> &joint_angles);
-    void load(URVersion version);
-    void unload();
 
   private:
     RLModel &at(int index);
@@ -60,7 +59,6 @@ class UR {
     RLModel wrist2_;
     RLModel wrist3_;
     RLModel tool_;
-    bool loaded_ = false;
 };
 
 namespace UR3e {

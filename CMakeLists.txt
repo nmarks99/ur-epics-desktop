@@ -162,6 +162,10 @@ add_executable(ur-epics-desktop
     ${rlimgui_SOURCE_DIR}/rlImGui.cpp
 )
 
+target_compile_definitions(ur-epics-desktop PRIVATE
+    UR_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+)
+
 target_include_directories(ur-epics-desktop PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     # ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui

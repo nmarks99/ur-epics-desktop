@@ -1,30 +1,20 @@
 #include "rl_utils.hpp"
 #include "raymath.h"
 #include "rcamera.h"
-#include <raylib.h>
 
 constexpr double AXES_THICKNESS = 0.0075;
 
-RLModel::RLModel(const char *model_path) : path(model_path) {}
-
-RLModel::RLModel(std::filesystem::path model_path) : path(model_path.string()) {}
-
-RLModel::RLModel(const char *model_path, const std::string &name) : name(name), path(model_path) {}
+void draw_axes_3d(float thickness, Matrix transform);
 
 RLModel::RLModel(std::filesystem::path model_path, const std::string &name)
-    : name(name), path(model_path.string()) {}
+    : name(name) {
+    model = LoadModel(model_path.c_str());
+}
 
 RLModel::~RLModel() {
     if (IsModelValid(model)) {
         UnloadModel(model);
-    }
-}
-
-void RLModel::load() { model = LoadModel(path.c_str()); }
-
-void RLModel::unload() {
-    if (IsModelValid(model)) {
-        UnloadModel(model);
+        model = {0};
     }
 }
 
@@ -45,15 +35,6 @@ void RLModel::draw_axes() {
         draw_axes_3d(AXES_THICKNESS, model.transform);
     }
 }
-
-RLWindow::RLWindow(int width, int height, const char *title) {
-    SetTraceLogLevel(LOG_FATAL);
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    SetTargetFPS(60);
-    InitWindow(width, height, title);
-};
-
-RLWindow::~RLWindow() { CloseWindow(); }
 
 RLCamera3D::RLCamera3D() {
     camera = {0};

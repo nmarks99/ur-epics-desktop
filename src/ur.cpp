@@ -39,51 +39,22 @@ UR::UR(URVersion version)
       wrist1_(model_dir_ / "wrist1.obj", UR_MODEL_LABELS.at(4).data()),
       wrist2_(model_dir_ / "wrist2.obj", UR_MODEL_LABELS.at(5).data()),
       wrist3_(model_dir_ / "wrist3.obj", UR_MODEL_LABELS.at(6).data()),
-      tool_(model_dir_ / "../robotiq-hand-e.obj", UR_MODEL_LABELS.at(7).data()) {
+      tool_(model_dir_ / "../robotiq-hand-e.obj", UR_MODEL_LABELS.at(7).data())
+{
+
+    version_ = version;
+    model_dir_ = get_model_dir(version);
+
     tfs_ = get_tfs(version);
-    this->load(version);
-}
 
-void UR::load(URVersion version) {
-    if (not loaded_) {
-        version_ = version;
-        model_dir_ = get_model_dir(version);
-
-        // update the paths of existing RLModel objects
-        base_.path = (model_dir_ / "base.obj").string();
-        shoulder_.path = (model_dir_ / "shoulder.obj").string();
-        upperarm_.path = (model_dir_ / "upperarm.obj").string();
-        forearm_.path = (model_dir_ / "forearm.obj").string();
-        wrist1_.path = (model_dir_ / "wrist1.obj").string();
-        wrist2_.path = (model_dir_ / "wrist2.obj").string();
-        wrist3_.path = (model_dir_ / "wrist3.obj").string();
-        tool_.path = (model_dir_ / "../robotiq-hand-e.obj").string();
-
-        this->for_each_model([](RLModel &model) { model.load(); });
-        loaded_ = true;
-
-        tfs_ = get_tfs(version);
-
-        // apply initial static transform
-        this->at(0).model.transform = tfs_.at(0);
-        for (int i = 1; i < UR_NUM_MODELS; i++) {
-            this->at(i).model.transform = MatrixMultiply(tfs_.at(i), this->at(i - 1).model.transform);
-        }
+    // apply initial static transform
+    this->at(0).model.transform = tfs_.at(0);
+    for (int i = 1; i < UR_NUM_MODELS; i++) {
+        this->at(i).model.transform = MatrixMultiply(tfs_.at(i), this->at(i - 1).model.transform);
     }
-}
-
-void UR::unload() {
-    if (not loaded_) {
-        return;
-    }
-    this->for_each_model([](RLModel &model) { model.unload(); });
-    loaded_ = false;
 }
 
 void UR::update(const std::vector<double> &joint_angles) {
-    if (not loaded_) {
-        return;
-    }
     shoulder_.model.transform =
         MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(0)), tfs_.at(1)), base_.model.transform);
     upperarm_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(1)), tfs_.at(2)),
@@ -99,36 +70,11 @@ void UR::update(const std::vector<double> &joint_angles) {
     tool_.model.transform = MatrixMultiply(tfs_.at(7), wrist3_.model.transform);
 }
 
-// void UR::update(const std::vector<float> &joint_angles) {
-    // if (not loaded_) {
-        // return;
-    // }
-    // shoulder_.model.transform =
-        // MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(0)), tfs_.at(1)), base_.model.transform);
-    // upperarm_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(1)), tfs_.at(2)),
-                                               // shoulder_.model.transform);
-    // forearm_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(2)), tfs_.at(3)),
-                                              // upperarm_.model.transform);
-    // wrist1_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(3)), tfs_.at(4)),
-                                             // forearm_.model.transform);
-    // wrist2_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(4)), tfs_.at(5)),
-                                             // wrist1_.model.transform);
-    // wrist3_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(5)), tfs_.at(6)),
-                                             // wrist2_.model.transform);
-    // tool_.model.transform = MatrixMultiply(tfs_.at(7), wrist3_.model.transform);
-// }
-
 void UR::draw() {
-    if (not loaded_) {
-        return;
-    }
     for_each_model([](RLModel &model) { model.draw(); });
 }
 
 void UR::draw(int mask, bool opaque) {
-    if (not loaded_) {
-        return;
-    }
     int i = 0;
     for_each_model([&](RLModel &model) {
         if (mask & (1 << i)) {
@@ -149,16 +95,10 @@ void UR::draw(int mask, bool opaque) {
 }
 
 void UR::draw_axes() {
-    if (not loaded_) {
-        return;
-    }
     for_each_model([](RLModel &model) { model.draw_axes(); });
 }
 
 void UR::draw_axes(int mask) {
-    if (not loaded_) {
-        return;
-    }
     int i = 0;
     for_each_model([&](RLModel &model) {
         if (mask & (1 << i)) {

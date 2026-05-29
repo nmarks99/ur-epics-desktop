@@ -1,92 +1,158 @@
-/*******************************************************************************************
-*
-*   raylib-extras [ImGui] example - Simple Integration
-*
-*	This is a simple ImGui Integration
-*	It is done using C++ but with C style code
-*	It can be done in C as well if you use the C ImGui wrapper
-*	https://github.com/cimgui/cimgui
-*
-*   Copyright (c) 2021 Jeffery Myers
-*
-********************************************************************************************/
-
 #include "raylib.h"
-#include "raymath.h"
-
+#include "rcamera.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "rlImGui.h"
 
+#include "rl_utils.hpp"
+#include "ur.hpp"
+#include "ezec.hpp"
 
-// DPI scaling functions
-float ScaleToDPIF(float value)
-{
-    return GetWindowScaleDPI().x * value;
+static void BuildDefaultLayout(ImGuiID dockspace_id) {
+    ImGui::DockBuilderRemoveNode(dockspace_id);
+    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
+
+    ImGuiID left, center_and_bottom;
+    ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, 0.20f, &left, &center_and_bottom);
+
+    ImGuiID center, bottom;
+    ImGui::DockBuilderSplitNode(center_and_bottom, ImGuiDir_Down, 0.30f, &bottom, &center);
+
+    ImGui::DockBuilderDockWindow("Side Panel", left);
+    ImGui::DockBuilderDockWindow("3D Viewport", center);
+    ImGui::DockBuilderDockWindow("Controls", bottom);
+
+    ImGui::DockBuilderFinish(dockspace_id);
 }
 
-int ScaleToDPII(int value)
-{
-    return int(GetWindowScaleDPI().x * value);
-}
+int main(int argc, char* argv[]) {
 
-int main(int argc, char* argv[])
-{
-	// Initialization
-	//--------------------------------------------------------------------------------------
-	int screenWidth = 1280;
-	int screenHeight = 800;
+    // ezec::Context ctxt;
+    // ezec::ChannelGroup pvgroup;
+    // double joint1 = 0.0;
+    // double joint2 = 0.0;
+    // double joint3 = 0.0;
+    // double joint4 = 0.0;
+    // double joint5 = 0.0;
+    // double joint6 = 0.0;
+    // pvgroup.add("bcur:Receive:Joint1.VAL").bind(joint1);
+    // pvgroup.add("bcur:Receive:Joint2.VAL").bind(joint2);
+    // pvgroup.add("bcur:Receive:Joint3.VAL").bind(joint3);
+    // pvgroup.add("bcur:Receive:Joint4.VAL").bind(joint4);
+    // pvgroup.add("bcur:Receive:Joint5.VAL").bind(joint5);
+    // pvgroup.add("bcur:Receive:Joint6.VAL").bind(joint6);
 
-	SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
-	InitWindow(screenWidth, screenHeight, "raylib-Extras [ImGui] example - simple ImGui Demo");
-	SetTargetFPS(60);
-	rlImGuiSetup(true);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
+    InitWindow(1280, 800, "UR EPICS Desktop");
+    rlImGuiSetup(true);
 
-	Texture image = LoadTexture("resources/parrots.png");
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.FontGlobalScale = 2.0f;
 
-	// Main game loop
-	while (!WindowShouldClose())    // Detect window close button or ESC key
-	{
-		BeginDrawing();
-		ClearBackground(DARKGRAY);
+    auto robot_model = std::make_unique<UR>(URVersion::UR3e);
 
-		// start ImGui Conent
-		rlImGuiBegin();
+    RLCamera3D cam;
 
-		// show ImGui Content
-		bool open = true;
-		ImGui::ShowDemoWindow(&open);
+    int viewW = GetScreenWidth();
+    int viewH = GetScreenHeight();
+    RenderTexture2D viewTexture = LoadRenderTexture(viewW, viewH);
+    SetTextureFilter(viewTexture.texture, TEXTURE_FILTER_BILINEAR);
 
-		open = true;
-		if (ImGui::Begin("Test Window", &open))
-		{
-			ImGui::TextUnformatted(ICON_FA_JEDI);
+    bool layout_initialized = false;
 
-			rlImGuiImage(&image);
-		}
-		ImGui::End();
+    constexpr double TARGET_FPS = 60.0;
+    constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
 
-		// end ImGui Content
-		rlImGuiEnd();
+    while (!WindowShouldClose()) {
+        double frame_start = GetTime();
 
-		if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-			DrawText("Prssed", 0, 0, 20, RED);
+        if (viewW > 0 && viewH > 0) {
+            if (viewTexture.texture.width != viewW || viewTexture.texture.height != viewH) {
+                UnloadRenderTexture(viewTexture);
+                viewTexture = LoadRenderTexture(viewW, viewH);
+                SetTextureFilter(viewTexture.texture, TEXTURE_FILTER_BILINEAR);
+            }
 
-		if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
-			DrawText("Down", 0, 20, 20, GREEN);
+            cam.update();
+            // if (pvgroup.sync()) {
+                // std::vector<double> joints = {joint1, joint2, joint3, joint4, joint5, joint6};
+                // for (auto& v : joints) {
+                    // v *= M_PI/180.0; // convert to rad
+                // }
+                // robot_model.update(joints);
+            // }
 
-		if (IsWindowFocused())
-			DrawText("Focused", 100, 20, 20, WHITE);
+            BeginTextureMode(viewTexture);
+            ClearBackground(RAYWHITE);
+            BeginMode3D(cam.camera);
+            robot_model->draw(0);
+            DrawGrid(10, 0.25f);
+            EndMode3D();
+            EndTextureMode();
+        }
 
-		EndDrawing();
-		//----------------------------------------------------------------------------------
-	}
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
 
-	// De-Initialization
-	//--------------------------------------------------------------------------------------
+        rlImGuiBegin();
+
+        ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+        ImGui::DockSpaceOverViewport(dockspace_id, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+
+        if (!layout_initialized) {
+            BuildDefaultLayout(dockspace_id);
+            layout_initialized = true;
+        }
+
+        ImGui::Begin("Side Panel");
+        ImGui::Text("Robot Arm Control");
+        ImGui::Separator();
+        ImGui::TextWrapped("Side panel placeholder for future controls and status displays.");
+        ImGui::End();
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::Begin("3D Viewport", nullptr, ImGuiWindowFlags_NoScrollbar);
+        ImVec2 panelSize = ImGui::GetContentRegionAvail();
+        viewW = (int)panelSize.x;
+        viewH = (int)panelSize.y;
+        rlImGuiImageRenderTextureFit(&viewTexture, true);
+        ImGui::End();
+        ImGui::PopStyleVar();
+
+        {
+            ImGui::Begin("Controls");
+            // ImGui::Text("RBV: %.4f", rbv);
+            // ImGui::Text("VAL: %.4f", val);
+            float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+            ImGui::BeginDisabled();
+            if (ImGui::ArrowButton("##left", ImGuiDir_Left)) {
+                // pvgroup["namSoft:m1.TWR"].put(1);
+                printf("LEFT!\n");
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0.0f, spacing);
+            if (ImGui::ArrowButton("##right", ImGuiDir_Right)) {
+                // pvgroup["namSoft:m1.TWF"].put(1);
+                printf("RIGHT!\n");
+            }
+            ImGui::End();
+        }
+
+        rlImGuiEnd();
+        EndDrawing();
+
+        double elapsed = GetTime() - frame_start;
+        if (elapsed < FRAME_TIME) {
+            WaitTime(FRAME_TIME - elapsed);
+        }
+    }
+
+    robot_model.reset();
+    UnloadRenderTexture(viewTexture);
     rlImGuiShutdown();
-	UnloadTexture(image);
-	CloseWindow();        // Close window and OpenGL context
-	//--------------------------------------------------------------------------------------
+    CloseWindow();
 
-	return 0;
+    return 0;
 }
