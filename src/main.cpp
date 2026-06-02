@@ -11,6 +11,14 @@
 constexpr int TARGET_FPS = 60;
 constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
 
+enum class ActiveWindow {
+    Viewport,
+    Controls,
+    Sidebar
+};
+
+static ActiveWindow g_active_window = ActiveWindow::Viewport;
+
 static void BuildDefaultLayout(ImGuiID dockspace_id) {
     ImGui::DockBuilderRemoveNode(dockspace_id);
     ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
@@ -77,12 +85,54 @@ void jog_buttons() {
     jog_button("##jog_down", ImGuiDir::ImGuiDir_Down, throttle_down);
     ImGui::SameLine();
     ImGui::Dummy(btn_size);
+}
 
+void render_sidebar() {
+    ImGui::Begin("Side Panel");
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        ImGui::SetWindowFocus();
+    }
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        g_active_window = ActiveWindow::Sidebar;
+    }
+    ImGui::Text("Robot Arm Control");
+    ImGui::Separator();
+    ImGui::TextWrapped("Side panel placeholder for future controls and status displays.");
+    ImGui::End();
+}
+
+void render_viewport(RenderTexture2D& view_texture, int& view_width, int& view_height) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("3D Viewport", nullptr, ImGuiWindowFlags_NoScrollbar);
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        ImGui::SetWindowFocus();
+    }
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        g_active_window = ActiveWindow::Viewport;
+    }
+    ImVec2 panelSize = ImGui::GetContentRegionAvail();
+    view_width = (int)panelSize.x;
+    view_height = (int)panelSize.y;
+    rlImGuiImageRenderTextureFit(&view_texture, true);
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void render_controls() {
+    ImGui::Begin("Controls");
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        ImGui::SetWindowFocus();
+    }
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        g_active_window = ActiveWindow::Controls;
+    }
+    jog_buttons();
+    ImGui::End();
 }
 
 int main(int argc, char* argv[]) {
 
-    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
+// SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 800, "UR EPICS Desktop");
     SetTargetFPS(TARGET_FPS);
@@ -104,24 +154,29 @@ int main(int argc, char* argv[]) {
 
     RLCamera3D cam;
 
-    int viewW = GetScreenWidth();
-    int viewH = GetScreenHeight();
-    RenderTexture2D viewTexture = LoadRenderTexture(viewW, viewH);
-    SetTextureFilter(viewTexture.texture, TEXTURE_FILTER_BILINEAR);
+    int view_width = GetScreenWidth();
+    int view_height = GetScreenHeight();
+    RenderTexture2D view_texture = LoadRenderTexture(view_width, view_height);
+    SetTextureFilter(view_texture.texture, TEXTURE_FILTER_BILINEAR);
 
     bool layout_initialized = false;
 
     while (!WindowShouldClose()) {
         double frame_start = GetTime();
 
-        if (viewW > 0 && viewH > 0) {
-            if (viewTexture.texture.width != viewW || viewTexture.texture.height != viewH) {
-                UnloadRenderTexture(viewTexture);
-                viewTexture = LoadRenderTexture(viewW, viewH);
-                SetTextureFilter(viewTexture.texture, TEXTURE_FILTER_BILINEAR);
+        if (view_width > 0 && view_height > 0) {
+            if (view_texture.texture.width != view_width || view_texture.texture.height != view_height) {
+                UnloadRenderTexture(view_texture);
+                view_texture = LoadRenderTexture(view_width, view_height);
+                SetTextureFilter(view_texture.texture, TEXTURE_FILTER_BILINEAR);
             }
 
-            cam.update();
+            // TODO: only update camera when 3D viewport window is focused
+            if (g_active_window == ActiveWindow::Viewport) {
+                cam.update();
+            }
+
+            // Update robot joint angles
             if (ctxt.sync()) {
                 for (auto& v : joints) {
                     v *= M_PI/180.0; // convert to rad
@@ -129,7 +184,7 @@ int main(int argc, char* argv[]) {
                 robot_model->update(joints);
             }
 
-            BeginTextureMode(viewTexture);
+            BeginTextureMode(view_texture);
             ClearBackground(RAYWHITE);
             // Draw ////////////////////////////
             BeginMode3D(cam.camera);
@@ -153,26 +208,11 @@ int main(int argc, char* argv[]) {
             layout_initialized = true;
         }
 
-        ImGui::Begin("Side Panel");
-        ImGui::Text("Robot Arm Control");
-        ImGui::Separator();
-        ImGui::TextWrapped("Side panel placeholder for future controls and status displays.");
-        ImGui::End();
+        render_sidebar();
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::Begin("3D Viewport", nullptr, ImGuiWindowFlags_NoScrollbar);
-        ImVec2 panelSize = ImGui::GetContentRegionAvail();
-        viewW = (int)panelSize.x;
-        viewH = (int)panelSize.y;
-        rlImGuiImageRenderTextureFit(&viewTexture, true);
-        ImGui::End();
-        ImGui::PopStyleVar();
+        render_viewport(view_texture, view_width, view_height);
 
-        {
-            ImGui::Begin("Controls");
-            jog_buttons();
-            ImGui::End();
-        }
+        render_controls();
 
         rlImGuiEnd();
         EndDrawing();
@@ -184,7 +224,7 @@ int main(int argc, char* argv[]) {
     }
 
     robot_model.reset();
-    UnloadRenderTexture(viewTexture);
+    UnloadRenderTexture(view_texture);
     rlImGuiShutdown();
     CloseWindow();
 
