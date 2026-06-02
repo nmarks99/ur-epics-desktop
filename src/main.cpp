@@ -8,6 +8,9 @@
 #include "ur.hpp"
 #include "ezec.hpp"
 
+constexpr int TARGET_FPS = 60;
+constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
+
 static void BuildDefaultLayout(ImGuiID dockspace_id) {
     ImGui::DockBuilderRemoveNode(dockspace_id);
     ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
@@ -26,30 +29,76 @@ static void BuildDefaultLayout(ImGuiID dockspace_id) {
     ImGui::DockBuilderFinish(dockspace_id);
 }
 
+void jog_button(const char* label, ImGuiDir dir, int& throttle) {
+    ImGui::ArrowButton(label, dir);
+
+    // Run this repeatedly (throttled) when pressed
+    if (ImGui::IsItemActive()) {
+        if ((throttle % (TARGET_FPS / 10)) == 0) {
+            printf("%s pressed!\n", label);
+        }
+        throttle++;
+    }
+
+    // Run this on release
+    if (ImGui::IsItemDeactivated() && throttle != 0) {
+        printf("%s released\n", label);
+        throttle = 0;
+    }
+}
+
+void jog_buttons() {
+    static bool pressed = false;
+    static int pcount = 0;
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    float btn_side = ImGui::GetFontSize() + (style.FramePadding.y * 2.0f);
+    ImVec2 btn_size = ImVec2(btn_side, btn_side);
+
+    static int throttle_up = TARGET_FPS / 10;
+    static int throttle_left = TARGET_FPS / 10;
+    static int throttle_right = TARGET_FPS / 10;
+    static int throttle_down = TARGET_FPS / 10;
+
+    ImGui::Dummy(btn_size);
+    ImGui::SameLine();
+    jog_button("##jog_up", ImGuiDir::ImGuiDir_Up, throttle_up);
+    ImGui::SameLine();
+    ImGui::Dummy(btn_size);
+
+    jog_button("##jog_left", ImGuiDir::ImGuiDir_Left, throttle_left);
+    ImGui::SameLine();
+    ImGui::Dummy(btn_size);
+    ImGui::SameLine();
+    jog_button("##jog_right", ImGuiDir::ImGuiDir_Right, throttle_right);
+
+    ImGui::Dummy(btn_size);
+    ImGui::SameLine();
+    jog_button("##jog_down", ImGuiDir::ImGuiDir_Down, throttle_down);
+    ImGui::SameLine();
+    ImGui::Dummy(btn_size);
+
+}
+
 int main(int argc, char* argv[]) {
 
-    // ezec::Context ctxt;
-    // ezec::ChannelGroup pvgroup;
-    // double joint1 = 0.0;
-    // double joint2 = 0.0;
-    // double joint3 = 0.0;
-    // double joint4 = 0.0;
-    // double joint5 = 0.0;
-    // double joint6 = 0.0;
-    // pvgroup.add("bcur:Receive:Joint1.VAL").bind(joint1);
-    // pvgroup.add("bcur:Receive:Joint2.VAL").bind(joint2);
-    // pvgroup.add("bcur:Receive:Joint3.VAL").bind(joint3);
-    // pvgroup.add("bcur:Receive:Joint4.VAL").bind(joint4);
-    // pvgroup.add("bcur:Receive:Joint5.VAL").bind(joint5);
-    // pvgroup.add("bcur:Receive:Joint6.VAL").bind(joint6);
-
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
+    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 800, "UR EPICS Desktop");
+    SetTargetFPS(TARGET_FPS);
     rlImGuiSetup(true);
 
+    // Setup docking and font
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.FontGlobalScale = 2.0f;
+    auto font_ttf_path = get_resource_dir() / "fonts/JetBrainsMonoNerdFont-Regular.ttf";
+    auto font = io.Fonts->AddFontFromFileTTF(font_ttf_path.c_str());
+    io.FontDefault = font;
+
+    ezec::Context ctxt;
+    std::vector<double> joints(UR_NUM_AXES);
+    ctxt.add("urExample:Receive:ActualJointPositions.VAL").bind(joints);
 
     auto robot_model = std::make_unique<UR>(URVersion::UR3e);
 
@@ -62,9 +111,6 @@ int main(int argc, char* argv[]) {
 
     bool layout_initialized = false;
 
-    constexpr double TARGET_FPS = 60.0;
-    constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
-
     while (!WindowShouldClose()) {
         double frame_start = GetTime();
 
@@ -76,20 +122,21 @@ int main(int argc, char* argv[]) {
             }
 
             cam.update();
-            // if (pvgroup.sync()) {
-                // std::vector<double> joints = {joint1, joint2, joint3, joint4, joint5, joint6};
-                // for (auto& v : joints) {
-                    // v *= M_PI/180.0; // convert to rad
-                // }
-                // robot_model.update(joints);
-            // }
+            if (ctxt.sync()) {
+                for (auto& v : joints) {
+                    v *= M_PI/180.0; // convert to rad
+                }
+                robot_model->update(joints);
+            }
 
             BeginTextureMode(viewTexture);
             ClearBackground(RAYWHITE);
+            // Draw ////////////////////////////
             BeginMode3D(cam.camera);
-            robot_model->draw(0);
-            DrawGrid(10, 0.25f);
+                robot_model->draw(0);
+                DrawGrid(10, 0.25f);
             EndMode3D();
+            ///////////////////////////////////
             EndTextureMode();
         }
 
@@ -123,20 +170,7 @@ int main(int argc, char* argv[]) {
 
         {
             ImGui::Begin("Controls");
-            // ImGui::Text("RBV: %.4f", rbv);
-            // ImGui::Text("VAL: %.4f", val);
-            float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-            ImGui::BeginDisabled();
-            if (ImGui::ArrowButton("##left", ImGuiDir_Left)) {
-                // pvgroup["namSoft:m1.TWR"].put(1);
-                printf("LEFT!\n");
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine(0.0f, spacing);
-            if (ImGui::ArrowButton("##right", ImGuiDir_Right)) {
-                // pvgroup["namSoft:m1.TWF"].put(1);
-                printf("RIGHT!\n");
-            }
+            jog_buttons();
             ImGui::End();
         }
 

@@ -80,6 +80,24 @@ foreach(DIR ${POTENTIAL_EPICS_INCLUDES})
 endforeach()
 # ------------------------------------------------------------------------------
 
+# --- PVXS --------------------------------------------------------------------
+if(NOT DEFINED PVXS OR PVXS STREQUAL "")
+    set(PVXS $ENV{PVXS})
+endif()
+if(NOT PVXS OR PVXS STREQUAL "")
+    message(FATAL_ERROR "PVXS not set. Pass -DPVXS=... or set the environment variable.")
+endif()
+set(PVXS "${PVXS}" CACHE STRING "Path to PVXS")
+
+set(PVXS_LIB_DIR "${PVXS}/lib/${EPICS_HOST_ARCH}")
+find_library(PVXS_pvxs pvxs
+    PATHS ${PVXS_LIB_DIR}
+    NO_DEFAULT_PATH
+    REQUIRED
+)
+set(PVXS_INCLUDES "${PVXS}/include")
+# ------------------------------------------------------------------------------
+
 # FetchContent for getting dependencies
 if (FETCH_RAYLIB OR FETCH_IMGUI OR FETCH_RLIMGUI)
     include(FetchContent)
@@ -172,10 +190,12 @@ target_include_directories(ur-epics-desktop PRIVATE
     ${rlimgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}
     ${EPICS_BASE_INCLUDES}
+    ${PVXS_INCLUDES}
 )
 
 target_link_libraries(ur-epics-desktop PRIVATE
     raylib
     imgui
     ${EPICS_BASE_LIBRARIES}
+    ${PVXS_pvxs}
 )
