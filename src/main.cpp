@@ -1,44 +1,48 @@
-#include "raylib.h"
-#include "rcamera.h"
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "raylib.h"
+#include "rcamera.h"
 #include "rlImGui.h"
 
+#include "ezec.hpp"
 #include "rl_utils.hpp"
 #include "ur.hpp"
-#include "ezec.hpp"
 
 constexpr int TARGET_FPS = 60;
 constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
 
-enum class ActiveWindow {
-    Viewport,
-    Controls,
-    Sidebar
-};
+enum class ActiveWindow { Robot, Controls, Sidebar };
 
-static ActiveWindow g_active_window = ActiveWindow::Viewport;
+static ActiveWindow g_active_window = ActiveWindow::Robot;
 
-static void BuildDefaultLayout(ImGuiID dockspace_id) {
+static void build_default_layout(ImGuiID dockspace_id) {
     ImGui::DockBuilderRemoveNode(dockspace_id);
     ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
-    ImGuiID left, center_and_bottom;
-    ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, 0.20f, &left, &center_and_bottom);
+    // ImGuiID left, center_and_bottom;
+    // ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, 0.20f, &left, &center_and_bottom);
+//
+    // ImGuiID center, bottom;
+    // ImGui::DockBuilderSplitNode(center_and_bottom, ImGuiDir_Down, 0.30f, &bottom, &center);
 
-    ImGuiID center, bottom;
-    ImGui::DockBuilderSplitNode(center_and_bottom, ImGuiDir_Down, 0.30f, &bottom, &center);
+    ImGuiID bottom, center;
+    ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.30f, &bottom, &center);
 
-    ImGui::DockBuilderDockWindow("Side Panel", left);
-    ImGui::DockBuilderDockWindow("3D Viewport", center);
+    // ImGui::DockBuilderDockWindow("Side Panel", left);
+    ImGui::DockBuilderDockWindow("Robot", center);
     ImGui::DockBuilderDockWindow("Controls", bottom);
 
     ImGui::DockBuilderFinish(dockspace_id);
 }
 
-void jog_button(const char* label, ImGuiDir dir, int& throttle) {
-    ImGui::ArrowButton(label, dir);
+namespace render {
+
+void jog_button(const char* label, ImVec2 size, ImGuiDir dir, int& throttle) {
+    ImGui::Button(label, size);
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && ImGui::IsItemHovered()) {
+        ImGui::SetItemTooltip("%s",label);
+    }
 
     // Run this repeatedly (throttled) when pressed
     if (ImGui::IsItemActive()) {
@@ -55,60 +59,61 @@ void jog_button(const char* label, ImGuiDir dir, int& throttle) {
     }
 }
 
-void jog_buttons() {
-    static bool pressed = false;
-    static int pcount = 0;
+void controls() {
+    ImGui::Begin("Controls");
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        ImGui::SetWindowFocus();
+    }
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        g_active_window = ActiveWindow::Controls;
+    }
 
     ImGuiStyle& style = ImGui::GetStyle();
-    float btn_side = ImGui::GetFontSize() + (style.FramePadding.y * 2.0f);
-    ImVec2 btn_size = ImVec2(btn_side, btn_side);
+    float border_height = ImGui::GetFontSize() + (style.FramePadding.y * 2.0f);
+
+    ImVec2 button_size = ImVec2(50.0, 50.0);
+    ImVec2 spacer = ImVec2(70.0, 50.0);
+    auto y_center = ImGui::GetContentRegionAvail().y / 2 + ImGui::GetCursorPosY();
+    ImGui::SetCursorPosY(y_center - (button_size.y / 2 + button_size.y + style.ItemSpacing.y));
 
     static int throttle_up = TARGET_FPS / 10;
     static int throttle_left = TARGET_FPS / 10;
     static int throttle_right = TARGET_FPS / 10;
     static int throttle_down = TARGET_FPS / 10;
 
-    ImGui::Dummy(btn_size);
+    ImGui::Dummy(button_size);
     ImGui::SameLine();
-    jog_button("##jog_up", ImGuiDir::ImGuiDir_Up, throttle_up);
+    jog_button("##jog_fwd", button_size, ImGuiDir::ImGuiDir_Up, throttle_up);
     ImGui::SameLine();
-    ImGui::Dummy(btn_size);
+    ImGui::Dummy(spacer);
+    ImGui::SameLine();
+    jog_button("##jog_up", button_size, ImGuiDir::ImGuiDir_Up, throttle_up);
 
-    jog_button("##jog_left", ImGuiDir::ImGuiDir_Left, throttle_left);
+    jog_button("##jog_left", button_size, ImGuiDir::ImGuiDir_Left, throttle_left);
     ImGui::SameLine();
-    ImGui::Dummy(btn_size);
+    ImGui::Dummy(button_size);
     ImGui::SameLine();
-    jog_button("##jog_right", ImGuiDir::ImGuiDir_Right, throttle_right);
+    jog_button("##jog_right", button_size, ImGuiDir::ImGuiDir_Right, throttle_right);
 
-    ImGui::Dummy(btn_size);
+    ImGui::Dummy(button_size);
     ImGui::SameLine();
-    jog_button("##jog_down", ImGuiDir::ImGuiDir_Down, throttle_down);
+    jog_button("##jog_bck", button_size, ImGuiDir::ImGuiDir_Down, throttle_down);
     ImGui::SameLine();
-    ImGui::Dummy(btn_size);
-}
+    ImGui::Dummy(spacer);
+    ImGui::SameLine();
+    jog_button("##jog_down", button_size, ImGuiDir::ImGuiDir_Up, throttle_up);
 
-void render_sidebar() {
-    ImGui::Begin("Side Panel");
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
-        ImGui::SetWindowFocus();
-    }
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        g_active_window = ActiveWindow::Sidebar;
-    }
-    ImGui::Text("Robot Arm Control");
-    ImGui::Separator();
-    ImGui::TextWrapped("Side panel placeholder for future controls and status displays.");
     ImGui::End();
 }
 
-void render_viewport(RenderTexture2D& view_texture, int& view_width, int& view_height) {
+void robot(RenderTexture2D& view_texture, int& view_width, int& view_height) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("3D Viewport", nullptr, ImGuiWindowFlags_NoScrollbar);
+    ImGui::Begin("Robot", nullptr, ImGuiWindowFlags_NoScrollbar);
     if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
         ImGui::SetWindowFocus();
     }
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        g_active_window = ActiveWindow::Viewport;
+        g_active_window = ActiveWindow::Robot;
     }
     ImVec2 panelSize = ImGui::GetContentRegionAvail();
     view_width = (int)panelSize.x;
@@ -118,21 +123,29 @@ void render_viewport(RenderTexture2D& view_texture, int& view_width, int& view_h
     ImGui::PopStyleVar();
 }
 
-void render_controls() {
-    ImGui::Begin("Controls");
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
-        ImGui::SetWindowFocus();
-    }
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        g_active_window = ActiveWindow::Controls;
-    }
-    jog_buttons();
-    ImGui::End();
-}
+// void sidebar() {
+    // ImGui::Begin("Side Panel");
+    // if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        // ImGui::SetWindowFocus();
+    // }
+    // if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        // g_active_window = ActiveWindow::Sidebar;
+    // }
+    // ImGui::Text("Robot Arm Control");
+    // ImGui::Separator();
+    // ImGui::TextWrapped("Side panel placeholder for future controls and status displays.");
+    // ImGui::End();
+// }
+
+} // namespace render
+
 
 int main(int argc, char* argv[]) {
 
-// SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
+    // TODO: make configurable
+    std::string ioc_prefix = "urExample:";
+
+    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 800, "UR EPICS Desktop");
     SetTargetFPS(TARGET_FPS);
@@ -146,10 +159,12 @@ int main(int argc, char* argv[]) {
     auto font = io.Fonts->AddFontFromFileTTF(font_ttf_path.c_str());
     io.FontDefault = font;
 
+    // Set up EPICS connection with ezec
     ezec::Context ctxt;
     std::vector<double> joints(UR_NUM_AXES);
-    ctxt.add("urExample:Receive:ActualJointPositions.VAL").bind(joints);
+    ctxt.add(ioc_prefix + "Receive:ActualJointPositions.VAL").bind(joints);
 
+    // Create the UR robot model
     auto robot_model = std::make_unique<UR>(URVersion::UR3e);
 
     RLCamera3D cam;
@@ -171,51 +186,50 @@ int main(int argc, char* argv[]) {
                 SetTextureFilter(view_texture.texture, TEXTURE_FILTER_BILINEAR);
             }
 
-            // TODO: only update camera when 3D viewport window is focused
-            if (g_active_window == ActiveWindow::Viewport) {
+            // TODO: only update camera when 3D robot window is focused
+            if (g_active_window == ActiveWindow::Robot) {
                 cam.update();
             }
 
             // Update robot joint angles
             if (ctxt.sync()) {
                 for (auto& v : joints) {
-                    v *= M_PI/180.0; // convert to rad
+                    v *= M_PI / 180.0; // convert to rad
                 }
                 robot_model->update(joints);
             }
 
             BeginTextureMode(view_texture);
             ClearBackground(RAYWHITE);
-            // Draw ////////////////////////////
+            // Draw ------------------------
             BeginMode3D(cam.camera);
-                robot_model->draw(0);
-                DrawGrid(10, 0.25f);
+            robot_model->draw(0);
+            DrawGrid(10, 0.25f);
             EndMode3D();
-            ///////////////////////////////////
             EndTextureMode();
+            // -----------------------------
         }
 
+        // Draw //////////////////////////////////////////////////////
         BeginDrawing();
         ClearBackground(RAYWHITE);
-
         rlImGuiBegin();
 
+        // Setup docking
         ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
         ImGui::DockSpaceOverViewport(dockspace_id, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
-
         if (!layout_initialized) {
-            BuildDefaultLayout(dockspace_id);
+            build_default_layout(dockspace_id);
             layout_initialized = true;
         }
 
-        render_sidebar();
-
-        render_viewport(view_texture, view_width, view_height);
-
-        render_controls();
+        // render::sidebar();
+        render::robot(view_texture, view_width, view_height);
+        render::controls();
 
         rlImGuiEnd();
         EndDrawing();
+        //////////////////////////////////////////////////////////////
 
         double elapsed = GetTime() - frame_start;
         if (elapsed < FRAME_TIME) {
