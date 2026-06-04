@@ -33,7 +33,7 @@ static void build_default_layout(ImGuiID dockspace_id) {
     // ImGui::DockBuilderSplitNode(center_and_bottom, ImGuiDir_Down, 0.30f, &bottom, &center);
 
     ImGuiID bottom, center;
-    ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.30f, &bottom, &center);
+    ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.35f, &bottom, &center);
 
     // ImGui::DockBuilderDockWindow("Side Panel", left);
     ImGui::DockBuilderDockWindow("Robot", center);
@@ -120,7 +120,7 @@ void controls() {
     ImVec2 button_size = ImVec2(50.0, 50.0);
     ImVec2 spacer = ImVec2(70.0, 50.0);
     auto y_center = ImGui::GetContentRegionAvail().y / 2 + ImGui::GetCursorPosY();
-    ImGui::SetCursorPosY(y_center - (button_size.y / 2 + button_size.y + style.ItemSpacing.y));
+    ImGui::SetCursorPosY(y_center - (button_size.y + button_size.y/4 + button_size.y + style.ItemSpacing.y + style.ItemSpacing.y/2));
 
     static int throttle_fwd = TARGET_FPS / 4;
     static int throttle_back = TARGET_FPS / 4;
@@ -129,7 +129,6 @@ void controls() {
     static int throttle_right = TARGET_FPS / 4;
     static int throttle_down = TARGET_FPS / 4;
 
-    ImGui::InputDouble("##jog_speed", &global::jog_speed);
     ImGui::Dummy(button_size);
     ImGui::SameLine();
     jog_button("##jog_fwd", button_size, JogDir::Forward, throttle_fwd);
@@ -151,6 +150,14 @@ void controls() {
     ImGui::Dummy(spacer);
     ImGui::SameLine();
     jog_button("##jog_down", button_size, JogDir::Down, throttle_down);
+
+    ImGui::Dummy({0, button_size.y/2});
+    ImGui::Text("Speed:");
+    ImGui::SameLine();
+    ImGui::PushItemWidth(150);
+    ImGui::InputDouble("##jog_speed", &global::jog_speed, 0, 0, "%.2f");
+    ImGui::SameLine();
+    ImGui::Text("mm/s");
 
     ImGui::End();
 }
@@ -185,7 +192,7 @@ int main(int argc, char* argv[]) {
 
     // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(1280, 800, "UR EPICS Desktop");
+    InitWindow(1000, 900, "UR EPICS Desktop");
     SetTargetFPS(TARGET_FPS);
     rlImGuiSetup(true);
 
