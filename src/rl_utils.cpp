@@ -43,6 +43,7 @@ RLWindow::RLWindow(int width, int height, const char *title) {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     SetTargetFPS(60);
     InitWindow(width, height, title);
+    SetExitKey(KEY_NULL);
     rlImGuiSetup(true);
 };
 

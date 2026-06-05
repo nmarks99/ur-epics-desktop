@@ -95,14 +95,14 @@ class Application {
         // Setup ImGui docking and font
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        io.FontGlobalScale = 2.0f;
+        io.FontGlobalScale = 1.5f;
         auto font_ttf_path = get_resource_dir() / "fonts/JetBrainsMonoNerdFont-Regular.ttf";
         auto font = io.Fonts->AddFontFromFileTTF(font_ttf_path.c_str());
         io.FontDefault = font;
 
         // Set up EPICS connection
-        ctxt_.ensure(P_, {
-            "Receive:ActualJointPositions.VAL",
+        // These are just PVs we write to only
+        ctxt_.add(P_, {
             "Control:JogStart.PROC",
             "Control:JogStop.PROC",
             "Control:JogSpeedX.VAL",
@@ -114,8 +114,10 @@ class Application {
             "RobotiqGripper:Open.PROC",
             "RobotiqGripper:Close.PROC",
         });
-        ctxt_.bind(joint_angles_, P_ + "Receive:ActualJointPositions.VAL");
 
+        // These are PVs we need to monitor
+        ctxt_.add(P_ + "Receive:ActualJointPositions.VAL").bind(joint_angles_);
+        ctxt_.add(P_ + "RobotiqGripper:IsOpen.RVAL").bind(gripper_open_);
     }
 
     void run() {
@@ -139,6 +141,7 @@ class Application {
     RobotRenderer robot_renderer_;
     ActiveWindow active_window_ = ActiveWindow::Robot;
     std::vector<double> joint_angles_;
+    int gripper_open_ = 1;
     bool layout_initialized_ = false;
     float jog_speed_ = 50.0;
     static constexpr double JOG_INTERVAL = 0.25;
@@ -163,6 +166,25 @@ class Application {
         if (!layout_initialized_) {
             build_default_layout(dockspace_id);
             layout_initialized_ = true;
+        }
+
+        // Popup if any PVs are disconnected
+        if (!ctxt_.all_connected()) {
+            ImGui::OpenPopup("PV(s) Disconnected");
+        }
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+        {
+            ImGui::Text("One or more PVs are not connected.");
+            ImGui::Separator();
+
+            bool connected = ctxt_.all_connected();
+            if (connected) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         draw_robot_window();
@@ -256,39 +278,59 @@ class Application {
             active_window_ = ActiveWindow::Controls;
         }
 
-        ImGuiStyle& style = ImGui::GetStyle();
-        ImVec2 button_size = ImVec2(50.0, 50.0);
-        ImVec2 spacer = ImVec2(70.0, 50.0);
-        auto y_center = ImGui::GetContentRegionAvail().y / 2 + ImGui::GetCursorPosY();
-        ImGui::SetCursorPosY(y_center - (button_size.y + button_size.y/4 + button_size.y + style.ItemSpacing.y + style.ItemSpacing.y/2));
+        ImVec2 btn = ImVec2(50.0f, 50.0f);
+        ImGuiTableFlags flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX;
 
-        ImGui::Dummy(button_size);
-        ImGui::SameLine();
-        jog_button("##jog_fwd", button_size, JogDir::Forward);
-        ImGui::SameLine();
-        ImGui::Dummy(spacer);
-        ImGui::SameLine();
-        jog_button("##jog_up", button_size, JogDir::Up);
+        if (ImGui::BeginTable("jog_table", 7, flags)) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn(); jog_button("##jog_fwd", btn, JogDir::Forward);
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn(); jog_button("##jog_up", btn, JogDir::Up);
+            ImGui::TableNextColumn();
 
-        jog_button("##jog_left", button_size, JogDir::Left);
-        ImGui::SameLine();
-        ImGui::Dummy(button_size);
-        ImGui::SameLine();
-        jog_button("##jog_right", button_size, JogDir::Right);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); jog_button("##jog_left", btn, JogDir::Left);
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn(); jog_button("##jog_right", btn, JogDir::Right);
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
 
-        ImGui::Dummy(button_size);
-        ImGui::SameLine();
-        jog_button("##jog_bck", button_size, JogDir::Backward);
-        ImGui::SameLine();
-        ImGui::Dummy(spacer);
-        ImGui::SameLine();
-        jog_button("##jog_down", button_size, JogDir::Down);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn(); jog_button("##jog_bck", btn, JogDir::Backward);
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn(); jog_button("##jog_down", btn, JogDir::Down);
+            ImGui::TableNextColumn();
 
-        ImGui::Dummy({0, button_size.y/2});
-        ImGui::Text("Speed:");
+            ImGui::EndTable();
+        }
+
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::Text("Gripper:");
         ImGui::SameLine();
-        ImGui::PushItemWidth(200);
-        ImGui::SliderFloat("%##jog_speed_slider", &jog_speed_, 1.0f, 100.0f, "%.0f");
+        if (ImGui::Button("Open", ImVec2(100, 0))) {
+            ctxt_.put(P_ + "RobotiqGripper:Open.PROC", 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(100, 0))) {
+            ctxt_.put(P_ + "RobotiqGripper:Close.PROC", 1);
+        }
+        ImGui::SameLine();
+        ImGui::Spacing();
+        ImGui::SameLine();
+        if (gripper_open_) {
+            ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Open");
+        } else {
+            ImGui::TextColored({1.0, 0.0, 0.0, 1.0}, "Closed");
+        }
 
         ImGui::End();
     }

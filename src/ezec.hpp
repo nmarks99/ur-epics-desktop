@@ -569,6 +569,15 @@ class Context {
         }
     }
 
+    bool all_connected() const {
+        for (auto& [_, pv] : channel_map_) {
+            if (!pv->connected()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // TODO:
     // Context(const Context&) = delete;
     // Context& operator=(const Context&) = delete;
@@ -629,7 +638,7 @@ class Context {
         get_channel(pv_name).put(value);
     }
 
-    void ensure(const std::string& pv_name) {
+    ChannelBase& add(const std::string& pv_name) {
         auto it = channel_map_.find(pv_name);
         if (it == channel_map_.end()) {
             // add the pv if if doens't exist yet
@@ -639,9 +648,10 @@ class Context {
                 it = channel_map_.emplace(pv_name, std::make_unique<PVAChannel>(*pvxs_ctxt_, pv_name)).first;
             }
         }
+        return *it->second;
     }
 
-    void ensure(const std::vector<std::string>& pv_names) {
+    void add(const std::vector<std::string>& pv_names) {
         for (const auto& pv_name : pv_names) {
             auto it = channel_map_.find(pv_name);
             if (it == channel_map_.end()) {
@@ -655,7 +665,7 @@ class Context {
         }
     }
 
-    void ensure(const std::string& prefix, const std::vector<std::string>& pv_names) {
+    void add(const std::string& prefix, const std::vector<std::string>& pv_names) {
         for (std::string pv_name : pv_names) {
             pv_name = prefix + pv_name;
             auto it = channel_map_.find(pv_name);
