@@ -111,6 +111,8 @@ class Application {
             "Control:JogSpeedRoll.VAL",
             "Control:JogSpeedPitch.VAL",
             "Control:JogSpeedYaw.VAL",
+            "RobotiqGripper:Open.PROC",
+            "RobotiqGripper:Close.PROC",
         });
         ctxt_.bind(joint_angles_, P_ + "Receive:ActualJointPositions.VAL");
 
@@ -138,7 +140,9 @@ class Application {
     ActiveWindow active_window_ = ActiveWindow::Robot;
     std::vector<double> joint_angles_;
     bool layout_initialized_ = false;
-    double jog_speed_ = 50.0;
+    float jog_speed_ = 50.0;
+    static constexpr double JOG_INTERVAL = 0.25;
+    std::array<double, 6> jog_last_time_{};
 
     // sync EPICS, update robot model
     void update() {
@@ -177,7 +181,6 @@ class Application {
         ImGuiID bottom, center;
         ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.35f, &bottom, &center);
 
-        // ImGui::DockBuilderDockWindow("Side Panel", left);
         ImGui::DockBuilderDockWindow("Robot", center);
         ImGui::DockBuilderDockWindow("Controls", bottom);
 
@@ -196,24 +199,20 @@ class Application {
 
     void jog_stop() { ctxt_.put(P_ + "Control:JogStop.PROC", 1); }
 
-    void jog_button(const char* label, ImVec2 size, JogDir dir, int& throttle) {
+    void jog_button(const char* label, ImVec2 size, JogDir dir) {
         ImGui::Button(label, size);
         if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && ImGui::IsItemHovered()) {
             ImGui::SetItemTooltip("%s", label);
         }
 
-        // Run this repeatedly (throttled) when pressed
         if (ImGui::IsItemActive()) {
-            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected()) {
-                printf("JogStart not connected\n");
+            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected() ||
+                !ctxt_[P_ + "Control:JogStop.PROC"].connected()) {
                 return;
             }
-            if (!ctxt_[P_ + "Control:JogStop.PROC"].connected()) {
-                printf("JogStop not connected\n");
-                return;
-            }
-            if ((throttle % (TARGET_FPS / 4)) == 0) {
-                printf("%s pressed!\n", label);
+            double now = GetTime();
+            double& last = jog_last_time_[static_cast<int>(dir)];
+            if (now - last >= JOG_INTERVAL) {
                 switch (dir) {
                 case JogDir::Up:
                     set_jog_speeds({0.0, 0.0, jog_speed_, 0.0, 0.0, 0.0});
@@ -231,23 +230,20 @@ class Application {
                     set_jog_speeds({-jog_speed_, 0.0, 0.0, 0.0, 0.0, 0.0});
                     break;
                 case JogDir::Right:
-                    set_jog_speeds({jog_speed_, 0.0, 0.00, 0.0, 0.0, 0.0});
+                    set_jog_speeds({jog_speed_, 0.0, 0.0, 0.0, 0.0, 0.0});
                     break;
                 }
                 jog_start();
+                last = now;
             }
-            throttle++;
         }
 
-        // Run this on release
-        if (ImGui::IsItemDeactivated() && throttle != 0) {
-            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected())
+        if (ImGui::IsItemDeactivated()) {
+            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected() ||
+                !ctxt_[P_ + "Control:JogStop.PROC"].connected()) {
                 return;
-            if (!ctxt_[P_ + "Control:JogStop.PROC"].connected())
-                return;
-            printf("stopping jog\n");
+            }
             jog_stop();
-            throttle = 0;
         }
     }
 
@@ -266,42 +262,33 @@ class Application {
         auto y_center = ImGui::GetContentRegionAvail().y / 2 + ImGui::GetCursorPosY();
         ImGui::SetCursorPosY(y_center - (button_size.y + button_size.y/4 + button_size.y + style.ItemSpacing.y + style.ItemSpacing.y/2));
 
-        static int throttle_fwd = TARGET_FPS / 4;
-        static int throttle_back = TARGET_FPS / 4;
-        static int throttle_up = TARGET_FPS / 4;
-        static int throttle_left = TARGET_FPS / 4;
-        static int throttle_right = TARGET_FPS / 4;
-        static int throttle_down = TARGET_FPS / 4;
-
         ImGui::Dummy(button_size);
         ImGui::SameLine();
-        jog_button("##jog_fwd", button_size, JogDir::Forward, throttle_fwd);
+        jog_button("##jog_fwd", button_size, JogDir::Forward);
         ImGui::SameLine();
         ImGui::Dummy(spacer);
         ImGui::SameLine();
-        jog_button("##jog_up", button_size, JogDir::Up, throttle_up);
+        jog_button("##jog_up", button_size, JogDir::Up);
 
-        jog_button("##jog_left", button_size, JogDir::Left, throttle_left);
+        jog_button("##jog_left", button_size, JogDir::Left);
         ImGui::SameLine();
         ImGui::Dummy(button_size);
         ImGui::SameLine();
-        jog_button("##jog_right", button_size, JogDir::Right, throttle_right);
+        jog_button("##jog_right", button_size, JogDir::Right);
 
         ImGui::Dummy(button_size);
         ImGui::SameLine();
-        jog_button("##jog_bck", button_size, JogDir::Backward, throttle_back);
+        jog_button("##jog_bck", button_size, JogDir::Backward);
         ImGui::SameLine();
         ImGui::Dummy(spacer);
         ImGui::SameLine();
-        jog_button("##jog_down", button_size, JogDir::Down, throttle_down);
+        jog_button("##jog_down", button_size, JogDir::Down);
 
         ImGui::Dummy({0, button_size.y/2});
         ImGui::Text("Speed:");
         ImGui::SameLine();
-        ImGui::PushItemWidth(150);
-        ImGui::InputDouble("##jog_speed", &jog_speed_, 0, 0, "%.2f");
-        ImGui::SameLine();
-        ImGui::Text("mm/s");
+        ImGui::PushItemWidth(200);
+        ImGui::SliderFloat("%##jog_speed_slider", &jog_speed_, 1.0f, 100.0f, "%.0f");
 
         ImGui::End();
     }
