@@ -19,6 +19,16 @@ struct RLModel {
     Model model = {0};
 };
 
+struct RLWindow {
+    RLWindow(int width, int height, const char *title);
+
+    ~RLWindow();
+
+    // delete copy constructor and copy assignment operator
+    RLWindow(const RLWindow &) = delete;
+    RLWindow &operator=(const RLWindow &) = delete;
+};
+
 struct RLCamera3D {
     RLCamera3D();
     void update();

@@ -14,292 +14,141 @@ enum class JogDir { Up, Down, Left, Right, Forward, Backward };
 constexpr int TARGET_FPS = 60;
 constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
 
-namespace global {
-std::string ioc_prefix;
-ezec::Context ctxt;
-ActiveWindow active_window = ActiveWindow::Robot;
-double jog_speed = 30; // mm/s
-} // namespace global
-
-static void build_default_layout(ImGuiID dockspace_id) {
-    ImGui::DockBuilderRemoveNode(dockspace_id);
-    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
-
-    // ImGuiID left, center_and_bottom;
-    // ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, 0.20f, &left, &center_and_bottom);
-    //
-    // ImGuiID center, bottom;
-    // ImGui::DockBuilderSplitNode(center_and_bottom, ImGuiDir_Down, 0.30f, &bottom, &center);
-
-    ImGuiID bottom, center;
-    ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.35f, &bottom, &center);
-
-    // ImGui::DockBuilderDockWindow("Side Panel", left);
-    ImGui::DockBuilderDockWindow("Robot", center);
-    ImGui::DockBuilderDockWindow("Controls", bottom);
-
-    ImGui::DockBuilderFinish(dockspace_id);
-}
-
-void set_jog_speeds(std::vector<double> speeds) {
-    static const std::array<std::string, UR_NUM_AXES> axis_names = {"X", "Y", "Z", "Roll", "Pitch", "Yaw"};
-    for (size_t i = 0; i < UR_NUM_AXES; i++) {
-        const auto pv_name = global::ioc_prefix + "Control:JogSpeed" + axis_names[i] + ".VAL";
-        global::ctxt.put(pv_name, speeds[i]);
-    }
-}
-void jog_start() { global::ctxt.put(global::ioc_prefix + "Control:JogStart.PROC", 1); }
-void jog_stop() { global::ctxt.put(global::ioc_prefix + "Control:JogStop.PROC", 1); }
-
-namespace render {
-
-void jog_button(const char* label, ImVec2 size, JogDir dir, int& throttle) {
-    ImGui::Button(label, size);
-    if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && ImGui::IsItemHovered()) {
-        ImGui::SetItemTooltip("%s", label);
-    }
-
-    // Run this repeatedly (throttled) when pressed
-    if (ImGui::IsItemActive()) {
-        if (!global::ctxt[global::ioc_prefix + "Control:JogStart.PROC"].connected()) {
-            printf("JogStart not connected\n");
-            return;
-        }
-        if (!global::ctxt[global::ioc_prefix + "Control:JogStop.PROC"].connected()) {
-            printf("JogStop not connected\n");
-            return;
-        }
-        if ((throttle % (TARGET_FPS / 4)) == 0) {
-            printf("%s pressed!\n", label);
-            switch (dir) {
-            case JogDir::Up:
-                set_jog_speeds({0.0, 0.0, global::jog_speed, 0.0, 0.0, 0.0});
-                break;
-            case JogDir::Down:
-                set_jog_speeds({0.0, 0.0, -global::jog_speed, 0.0, 0.0, 0.0});
-                break;
-            case JogDir::Forward:
-                set_jog_speeds({0.0, global::jog_speed, 0.0, 0.0, 0.0, 0.0});
-                break;
-            case JogDir::Backward:
-                set_jog_speeds({0.0, -global::jog_speed, 0.0, 0.0, 0.0, 0.0});
-                break;
-            case JogDir::Left:
-                set_jog_speeds({-global::jog_speed, 0.0, 0.0, 0.0, 0.0, 0.0});
-                break;
-            case JogDir::Right:
-                set_jog_speeds({global::jog_speed, 0.0, 0.00, 0.0, 0.0, 0.0});
-                break;
-            }
-            jog_start();
-        }
-        throttle++;
-    }
-
-    // Run this on release
-    if (ImGui::IsItemDeactivated() && throttle != 0) {
-        if (!global::ctxt[global::ioc_prefix + "Control:JogStart.PROC"].connected())
-            return;
-        if (!global::ctxt[global::ioc_prefix + "Control:JogStop.PROC"].connected())
-            return;
-        printf("stopping jog\n");
-        jog_stop();
-        throttle = 0;
-    }
-}
-
-void controls() {
-    ImGui::Begin("Controls");
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
-        ImGui::SetWindowFocus();
-    }
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        global::active_window = ActiveWindow::Controls;
-    }
-
-    ImGuiStyle& style = ImGui::GetStyle();
-    float border_height = ImGui::GetFontSize() + (style.FramePadding.y * 2.0f);
-
-    ImVec2 button_size = ImVec2(50.0, 50.0);
-    ImVec2 spacer = ImVec2(70.0, 50.0);
-    auto y_center = ImGui::GetContentRegionAvail().y / 2 + ImGui::GetCursorPosY();
-    ImGui::SetCursorPosY(y_center - (button_size.y + button_size.y/4 + button_size.y + style.ItemSpacing.y + style.ItemSpacing.y/2));
-
-    static int throttle_fwd = TARGET_FPS / 4;
-    static int throttle_back = TARGET_FPS / 4;
-    static int throttle_up = TARGET_FPS / 4;
-    static int throttle_left = TARGET_FPS / 4;
-    static int throttle_right = TARGET_FPS / 4;
-    static int throttle_down = TARGET_FPS / 4;
-
-    ImGui::Dummy(button_size);
-    ImGui::SameLine();
-    jog_button("##jog_fwd", button_size, JogDir::Forward, throttle_fwd);
-    ImGui::SameLine();
-    ImGui::Dummy(spacer);
-    ImGui::SameLine();
-    jog_button("##jog_up", button_size, JogDir::Up, throttle_up);
-
-    jog_button("##jog_left", button_size, JogDir::Left, throttle_left);
-    ImGui::SameLine();
-    ImGui::Dummy(button_size);
-    ImGui::SameLine();
-    jog_button("##jog_right", button_size, JogDir::Right, throttle_right);
-
-    ImGui::Dummy(button_size);
-    ImGui::SameLine();
-    jog_button("##jog_bck", button_size, JogDir::Backward, throttle_back);
-    ImGui::SameLine();
-    ImGui::Dummy(spacer);
-    ImGui::SameLine();
-    jog_button("##jog_down", button_size, JogDir::Down, throttle_down);
-
-    ImGui::Dummy({0, button_size.y/2});
-    ImGui::Text("Speed:");
-    ImGui::SameLine();
-    ImGui::PushItemWidth(150);
-    ImGui::InputDouble("##jog_speed", &global::jog_speed, 0, 0, "%.2f");
-    ImGui::SameLine();
-    ImGui::Text("mm/s");
-
-    ImGui::End();
-}
-
-void robot(RenderTexture2D& view_texture, int& view_width, int& view_height) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Robot", nullptr, ImGuiWindowFlags_NoScrollbar);
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
-        ImGui::SetWindowFocus();
-    }
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        global::active_window = ActiveWindow::Robot;
-    }
-    ImVec2 panelSize = ImGui::GetContentRegionAvail();
-    view_width = (int)panelSize.x;
-    view_height = (int)panelSize.y;
-    rlImGuiImageRenderTextureFit(&view_texture, true);
-    ImGui::End();
-    ImGui::PopStyleVar();
-}
-
-} // namespace render
-
-template <typename T>
-class PV {
+class RobotRenderer {
   public:
-    PV(ezec::Context& ctxt, const std::string& pv_name) : pv_name_(pv_name), ctxt_(ctxt) {
-        ctxt.ensure(pv_name);
-        ctxt.bind(value_, pv_name);
+    RobotRenderer() :
+        robot_model_(UR(URVersion::UR3e)),
+        view_width_(GetScreenWidth()),
+        view_height_(GetScreenHeight()),
+        view_texture_(LoadRenderTexture(view_width_, view_height_))
+    {
+        SetTextureFilter(view_texture_.texture, TEXTURE_FILTER_BILINEAR);
     }
 
-    template <typename R>
-    void put(R value) {
-        ctxt_.put(pv_name_, value);
+    ~RobotRenderer() {
+        UnloadRenderTexture(view_texture_);
     }
 
-    T get() {
-        return value_;
-    }
-
-  private:
-    ezec::Context& ctxt_;
-    T value_ = {};
-    std::string pv_name_;
-};
-
-int main(int argc, char* argv[]) {
-
-    // TODO: make configurable
-    if (argc != 2) {
-        printf("Usage: ./ur-epics-desktop <ioc_prefix>\n");
-        return EXIT_FAILURE;
-    }
-    global::ioc_prefix = argv[1];
-    if (!global::ioc_prefix.size()) {
-        printf("IOC prefix empty\n");
-        return EXIT_FAILURE;
-    }
-
-    // SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(1000, 900, "UR EPICS Desktop");
-    SetTargetFPS(TARGET_FPS);
-    rlImGuiSetup(true);
-
-    // Setup docking and font
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.FontGlobalScale = 2.0f;
-    auto font_ttf_path = get_resource_dir() / "fonts/JetBrainsMonoNerdFont-Regular.ttf";
-    auto font = io.Fonts->AddFontFromFileTTF(font_ttf_path.c_str());
-    io.FontDefault = font;
-
-    // Set up EPICS connection with ezec
-    std::vector<double> joints(UR_NUM_AXES);
-    global::ctxt.ensure(global::ioc_prefix, {
-        "Receive:ActualJointPositions.VAL",
-        "Control:JogStart.PROC",
-        "Control:JogStop.PROC",
-        "Control:JogSpeedX.VAL",
-        "Control:JogSpeedY.VAL",
-        "Control:JogSpeedZ.VAL",
-        "Control:JogSpeedRoll.VAL",
-        "Control:JogSpeedPitch.VAL",
-        "Control:JogSpeedYaw.VAL",
-    });
-    global::ctxt.bind(joints, global::ioc_prefix + "Receive:ActualJointPositions.VAL");
-
-    // Create the UR robot model
-    auto robot_model = std::make_unique<UR>(URVersion::UR3e);
-
-    RLCamera3D cam;
-
-    int view_width = GetScreenWidth();
-    int view_height = GetScreenHeight();
-    RenderTexture2D view_texture = LoadRenderTexture(view_width, view_height);
-    SetTextureFilter(view_texture.texture, TEXTURE_FILTER_BILINEAR);
-
-    bool layout_initialized = false;
-
-    while (!WindowShouldClose()) {
-        double frame_start = GetTime();
-
-        bool new_epics_data = global::ctxt.sync();
-
-        if (view_width > 0 && view_height > 0) {
-            if (view_texture.texture.width != view_width || view_texture.texture.height != view_height) {
-                UnloadRenderTexture(view_texture);
-                view_texture = LoadRenderTexture(view_width, view_height);
-                SetTextureFilter(view_texture.texture, TEXTURE_FILTER_BILINEAR);
+    void update(const std::vector<double>& joints, bool needs_update, bool window_active, bool pv_connected) {
+        if (view_width_ > 0 && view_height_ > 0) {
+            if (view_texture_.texture.width != view_width_ || view_texture_.texture.height != view_height_) {
+                UnloadRenderTexture(view_texture_);
+                view_texture_ = LoadRenderTexture(view_width_, view_height_);
+                SetTextureFilter(view_texture_.texture, TEXTURE_FILTER_BILINEAR);
             }
 
-            // TODO: only update camera when 3D robot window is focused
-            if (global::active_window == ActiveWindow::Robot) {
-                cam.update();
+            // only update camera when 3D robot window is focused
+            if (window_active) {
+                cam_.update();
             }
 
             // Update robot joint angles
-            if (new_epics_data) {
+            if (needs_update) {
                 std::vector<double> joints_rad(joints.size());
                 for (size_t i = 0; i < joints.size(); i++) {
                     joints_rad[i] = joints[i] * M_PI / 180.0;
                 }
-                robot_model->update(joints_rad);
+                robot_model_.update(joints_rad);
             }
 
-            BeginTextureMode(view_texture);
+            BeginTextureMode(view_texture_);
             ClearBackground(RAYWHITE);
             // Draw ------------------------
-            BeginMode3D(cam.camera);
-            robot_model->draw(0, !global::ctxt[global::ioc_prefix + "Receive:ActualJointPositions.VAL"].connected());
+            BeginMode3D(cam_.camera);
+            robot_model_.draw(0, !pv_connected);
             DrawGrid(10, 0.25f);
             EndMode3D();
             EndTextureMode();
             // -----------------------------
         }
+    }
 
-        // Draw //////////////////////////////////////////////////////
+    void set_width(int width) {
+        view_width_ = width;
+    }
+
+    void set_height(int height) {
+        view_height_ = height;
+    }
+
+    RenderTexture2D& texture() {
+        return view_texture_;
+    }
+
+  private:
+    int view_width_ = 0;
+    int view_height_ = 0;
+    RenderTexture2D view_texture_;
+    UR robot_model_;
+    RLCamera3D cam_;
+};
+
+class Application {
+  public:
+    Application(const std::string& ioc_prefix) :
+        P_(ioc_prefix),
+        rl_window_(1000, 900, "UR EPICS Desktop"),
+        joint_angles_(UR_NUM_AXES, 0.0)
+    {
+        // RLWindow constructor calls InitWindow, rlImGuiSetup, etc.
+
+        // Setup ImGui docking and font
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        io.FontGlobalScale = 2.0f;
+        auto font_ttf_path = get_resource_dir() / "fonts/JetBrainsMonoNerdFont-Regular.ttf";
+        auto font = io.Fonts->AddFontFromFileTTF(font_ttf_path.c_str());
+        io.FontDefault = font;
+
+        // Set up EPICS connection
+        ctxt_.ensure(P_, {
+            "Receive:ActualJointPositions.VAL",
+            "Control:JogStart.PROC",
+            "Control:JogStop.PROC",
+            "Control:JogSpeedX.VAL",
+            "Control:JogSpeedY.VAL",
+            "Control:JogSpeedZ.VAL",
+            "Control:JogSpeedRoll.VAL",
+            "Control:JogSpeedPitch.VAL",
+            "Control:JogSpeedYaw.VAL",
+        });
+        ctxt_.bind(joint_angles_, P_ + "Receive:ActualJointPositions.VAL");
+
+    }
+
+    void run() {
+        while(!WindowShouldClose()) {
+            double frame_start = GetTime();
+
+            update();
+            draw();
+
+            double elapsed = GetTime() - frame_start;
+            if (elapsed < FRAME_TIME) {
+                WaitTime(FRAME_TIME - elapsed);
+            }
+        }
+    };
+
+  private:
+    const std::string P_;
+    ezec::Context ctxt_;
+    RLWindow rl_window_;
+    RobotRenderer robot_renderer_;
+    ActiveWindow active_window_ = ActiveWindow::Robot;
+    std::vector<double> joint_angles_;
+    bool layout_initialized_ = false;
+    double jog_speed_ = 50.0;
+
+    // sync EPICS, update robot model
+    void update() {
+        bool new_epics_data = ctxt_.sync();
+        auto connected = ctxt_[P_ + "Receive:ActualJointPositions.VAL"].connected();
+        robot_renderer_.update(joint_angles_, new_epics_data, active_window_==ActiveWindow::Robot, connected);
+    }
+
+    // render 3D robot model to 2D texture, draw ImGui
+    void draw() {
         BeginDrawing();
         ClearBackground(RAYWHITE);
         rlImGuiBegin();
@@ -307,28 +156,189 @@ int main(int argc, char* argv[]) {
         // Setup docking
         ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
         ImGui::DockSpaceOverViewport(dockspace_id, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
-        if (!layout_initialized) {
+        if (!layout_initialized_) {
             build_default_layout(dockspace_id);
-            layout_initialized = true;
+            layout_initialized_ = true;
         }
 
-        render::robot(view_texture, view_width, view_height);
-        render::controls();
+        draw_robot_window();
+        draw_controls_window();
 
         rlImGuiEnd();
         EndDrawing();
         //////////////////////////////////////////////////////////////
+    }
 
-        double elapsed = GetTime() - frame_start;
-        if (elapsed < FRAME_TIME) {
-            WaitTime(FRAME_TIME - elapsed);
+    static void build_default_layout(ImGuiID dockspace_id) {
+        ImGui::DockBuilderRemoveNode(dockspace_id);
+        ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
+
+        ImGuiID bottom, center;
+        ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.35f, &bottom, &center);
+
+        // ImGui::DockBuilderDockWindow("Side Panel", left);
+        ImGui::DockBuilderDockWindow("Robot", center);
+        ImGui::DockBuilderDockWindow("Controls", bottom);
+
+        ImGui::DockBuilderFinish(dockspace_id);
+    }
+
+    void set_jog_speeds(std::vector<double> speeds) {
+        static const std::array<std::string, UR_NUM_AXES> axis_names = {"X", "Y", "Z", "Roll", "Pitch", "Yaw"};
+        for (size_t i = 0; i < UR_NUM_AXES; i++) {
+            const auto pv_name = P_ + "Control:JogSpeed" + axis_names[i] + ".VAL";
+            ctxt_.put(pv_name, speeds[i]);
         }
     }
 
-    robot_model.reset();
-    UnloadRenderTexture(view_texture);
-    rlImGuiShutdown();
-    CloseWindow();
+    void jog_start() { ctxt_.put(P_ + "Control:JogStart.PROC", 1); }
 
-    return 0;
+    void jog_stop() { ctxt_.put(P_ + "Control:JogStop.PROC", 1); }
+
+    void jog_button(const char* label, ImVec2 size, JogDir dir, int& throttle) {
+        ImGui::Button(label, size);
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && ImGui::IsItemHovered()) {
+            ImGui::SetItemTooltip("%s", label);
+        }
+
+        // Run this repeatedly (throttled) when pressed
+        if (ImGui::IsItemActive()) {
+            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected()) {
+                printf("JogStart not connected\n");
+                return;
+            }
+            if (!ctxt_[P_ + "Control:JogStop.PROC"].connected()) {
+                printf("JogStop not connected\n");
+                return;
+            }
+            if ((throttle % (TARGET_FPS / 4)) == 0) {
+                printf("%s pressed!\n", label);
+                switch (dir) {
+                case JogDir::Up:
+                    set_jog_speeds({0.0, 0.0, jog_speed_, 0.0, 0.0, 0.0});
+                    break;
+                case JogDir::Down:
+                    set_jog_speeds({0.0, 0.0, -jog_speed_, 0.0, 0.0, 0.0});
+                    break;
+                case JogDir::Forward:
+                    set_jog_speeds({0.0, jog_speed_, 0.0, 0.0, 0.0, 0.0});
+                    break;
+                case JogDir::Backward:
+                    set_jog_speeds({0.0, -jog_speed_, 0.0, 0.0, 0.0, 0.0});
+                    break;
+                case JogDir::Left:
+                    set_jog_speeds({-jog_speed_, 0.0, 0.0, 0.0, 0.0, 0.0});
+                    break;
+                case JogDir::Right:
+                    set_jog_speeds({jog_speed_, 0.0, 0.00, 0.0, 0.0, 0.0});
+                    break;
+                }
+                jog_start();
+            }
+            throttle++;
+        }
+
+        // Run this on release
+        if (ImGui::IsItemDeactivated() && throttle != 0) {
+            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected())
+                return;
+            if (!ctxt_[P_ + "Control:JogStop.PROC"].connected())
+                return;
+            printf("stopping jog\n");
+            jog_stop();
+            throttle = 0;
+        }
+    }
+
+    void draw_controls_window() {
+        ImGui::Begin("Controls");
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+            ImGui::SetWindowFocus();
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            active_window_ = ActiveWindow::Controls;
+        }
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImVec2 button_size = ImVec2(50.0, 50.0);
+        ImVec2 spacer = ImVec2(70.0, 50.0);
+        auto y_center = ImGui::GetContentRegionAvail().y / 2 + ImGui::GetCursorPosY();
+        ImGui::SetCursorPosY(y_center - (button_size.y + button_size.y/4 + button_size.y + style.ItemSpacing.y + style.ItemSpacing.y/2));
+
+        static int throttle_fwd = TARGET_FPS / 4;
+        static int throttle_back = TARGET_FPS / 4;
+        static int throttle_up = TARGET_FPS / 4;
+        static int throttle_left = TARGET_FPS / 4;
+        static int throttle_right = TARGET_FPS / 4;
+        static int throttle_down = TARGET_FPS / 4;
+
+        ImGui::Dummy(button_size);
+        ImGui::SameLine();
+        jog_button("##jog_fwd", button_size, JogDir::Forward, throttle_fwd);
+        ImGui::SameLine();
+        ImGui::Dummy(spacer);
+        ImGui::SameLine();
+        jog_button("##jog_up", button_size, JogDir::Up, throttle_up);
+
+        jog_button("##jog_left", button_size, JogDir::Left, throttle_left);
+        ImGui::SameLine();
+        ImGui::Dummy(button_size);
+        ImGui::SameLine();
+        jog_button("##jog_right", button_size, JogDir::Right, throttle_right);
+
+        ImGui::Dummy(button_size);
+        ImGui::SameLine();
+        jog_button("##jog_bck", button_size, JogDir::Backward, throttle_back);
+        ImGui::SameLine();
+        ImGui::Dummy(spacer);
+        ImGui::SameLine();
+        jog_button("##jog_down", button_size, JogDir::Down, throttle_down);
+
+        ImGui::Dummy({0, button_size.y/2});
+        ImGui::Text("Speed:");
+        ImGui::SameLine();
+        ImGui::PushItemWidth(150);
+        ImGui::InputDouble("##jog_speed", &jog_speed_, 0, 0, "%.2f");
+        ImGui::SameLine();
+        ImGui::Text("mm/s");
+
+        ImGui::End();
+    }
+
+    void draw_robot_window() {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::Begin("Robot", nullptr, ImGuiWindowFlags_NoScrollbar);
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+            ImGui::SetWindowFocus();
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            active_window_ = ActiveWindow::Robot;
+        }
+        ImVec2 panelSize = ImGui::GetContentRegionAvail();
+        robot_renderer_.set_width((int)panelSize.x);
+        robot_renderer_.set_height((int)panelSize.y);
+        rlImGuiImageRenderTextureFit(&robot_renderer_.texture(), true);
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+};
+
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        printf("Usage: ./ur-epics-desktop <ioc_prefix>\n");
+        return EXIT_FAILURE;
+    }
+
+    std::string ioc_prefix = argv[1];
+    if (!ioc_prefix.size()) {
+        printf("IOC prefix empty\n");
+        return EXIT_FAILURE;
+    }
+
+    Application app(ioc_prefix);
+    app.run();
+
+    return EXIT_SUCCESS;
 }

@@ -1,4 +1,5 @@
 #include "rl_utils.hpp"
+#include "rlImGui.h"
 #include "raymath.h"
 #include "rcamera.h"
 
@@ -35,6 +36,21 @@ void RLModel::draw_axes() {
         draw_axes_3d(AXES_THICKNESS, model.transform);
     }
 }
+
+
+RLWindow::RLWindow(int width, int height, const char *title) {
+    SetTraceLogLevel(LOG_FATAL);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
+    SetTargetFPS(60);
+    InitWindow(width, height, title);
+    rlImGuiSetup(true);
+};
+
+RLWindow::~RLWindow() {
+    rlImGuiShutdown();
+    CloseWindow();
+}
+
 
 RLCamera3D::RLCamera3D() {
     camera = {0};
