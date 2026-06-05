@@ -184,7 +184,11 @@ void robot(RenderTexture2D& view_texture, int& view_width, int& view_height) {
 int main(int argc, char* argv[]) {
 
     // TODO: make configurable
-    global::ioc_prefix = "urExample:";
+    if (argc != 2) {
+        printf("Usage: ./ur-epics-desktop <ioc_prefix>\n");
+        return EXIT_FAILURE;
+    }
+    global::ioc_prefix = argv[1];
     if (!global::ioc_prefix.size()) {
         printf("IOC prefix empty\n");
         return EXIT_FAILURE;
