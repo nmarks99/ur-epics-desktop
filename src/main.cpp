@@ -62,10 +62,14 @@ void jog_button(const char* label, ImVec2 size, JogDir dir, int& throttle) {
 
     // Run this repeatedly (throttled) when pressed
     if (ImGui::IsItemActive()) {
-        if (!global::ctxt[global::ioc_prefix + "Control:JogStart.PROC"].connected())
+        if (!global::ctxt[global::ioc_prefix + "Control:JogStart.PROC"].connected()) {
+            printf("JogStart not connected\n");
             return;
-        if (!global::ctxt[global::ioc_prefix + "Control:JogStop.PROC"].connected())
+        }
+        if (!global::ctxt[global::ioc_prefix + "Control:JogStop.PROC"].connected()) {
+            printf("JogStop not connected\n");
             return;
+        }
         if ((throttle % (TARGET_FPS / 4)) == 0) {
             printf("%s pressed!\n", label);
             switch (dir) {
@@ -181,6 +185,29 @@ void robot(RenderTexture2D& view_texture, int& view_width, int& view_height) {
 
 } // namespace render
 
+template <typename T>
+class PV {
+  public:
+    PV(ezec::Context& ctxt, const std::string& pv_name) : pv_name_(pv_name), ctxt_(ctxt) {
+        ctxt.ensure(pv_name);
+        ctxt.bind(value_, pv_name);
+    }
+
+    template <typename R>
+    void put(R value) {
+        ctxt_.put(pv_name_, value);
+    }
+
+    T get() {
+        return value_;
+    }
+
+  private:
+    ezec::Context& ctxt_;
+    T value_ = {};
+    std::string pv_name_;
+};
+
 int main(int argc, char* argv[]) {
 
     // TODO: make configurable
@@ -210,6 +237,17 @@ int main(int argc, char* argv[]) {
 
     // Set up EPICS connection with ezec
     std::vector<double> joints(UR_NUM_AXES);
+    global::ctxt.ensure(global::ioc_prefix, {
+        "Receive:ActualJointPositions.VAL",
+        "Control:JogStart.PROC",
+        "Control:JogStop.PROC",
+        "Control:JogSpeedX.VAL",
+        "Control:JogSpeedY.VAL",
+        "Control:JogSpeedZ.VAL",
+        "Control:JogSpeedRoll.VAL",
+        "Control:JogSpeedPitch.VAL",
+        "Control:JogSpeedYaw.VAL",
+    });
     global::ctxt.bind(joints, global::ioc_prefix + "Receive:ActualJointPositions.VAL");
 
     // Create the UR robot model
