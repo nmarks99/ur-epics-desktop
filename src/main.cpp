@@ -4,7 +4,7 @@
 #include "rcamera.h"
 #include "rlImGui.h"
 
-#include "ezec.hpp"
+#include "pace.hpp"
 #include "rl_utils.hpp"
 #include "ur.hpp"
 
@@ -102,7 +102,7 @@ class Application {
 
         // Set up EPICS connection
         // These are just PVs we write to only
-        ctxt_.add(P_, {
+        ctxt_.connect(P_, {
             "Control:JogStart.PROC",
             "Control:JogStop.PROC",
             "Control:JogSpeedX.VAL",
@@ -116,8 +116,8 @@ class Application {
         });
 
         // These are PVs we need to monitor
-        ctxt_.add(P_ + "Receive:ActualJointPositions.VAL").bind(joint_angles_);
-        ctxt_.add(P_ + "RobotiqGripper:IsOpen.RVAL").bind(gripper_open_);
+        ctxt_.connect(P_ + "Receive:ActualJointPositions.VAL").bind(joint_angles_);
+        ctxt_.connect(P_ + "RobotiqGripper:IsOpen.RVAL").bind(gripper_open_);
     }
 
     void run() {
@@ -136,7 +136,7 @@ class Application {
 
   private:
     const std::string P_;
-    ezec::Context ctxt_;
+    pace::Context ctxt_;
     RLWindow rl_window_;
     RobotRenderer robot_renderer_;
     ActiveWindow active_window_ = ActiveWindow::Robot;
