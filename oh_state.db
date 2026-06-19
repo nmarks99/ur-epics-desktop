@@ -1,0 +1,28 @@
+record(calcout, "$(P)z_pos") {
+    field(CALC, "RNDM*100")
+    field(SCAN, "1 second")
+}
+
+
+record(ao, "$(P)ZPickMax") {
+    field(VAL, 66.0)
+    field(PREC, 3)
+}
+
+record(ao, "$(P)ZPickMin") {
+    field(VAL, 33.0)
+    field(PREC, 3)
+}
+
+record(calcout, "$(P)z_okay_calc_") {
+    field(INPA, "z_pos.VAL CP")
+    field(INPB, "ZPickMax.VAL CP")
+    field(INPC, "ZPickMin.VAL CP")
+    field(CALC, "A<=B && A>=C")
+    field(PREC, 0)
+}
+
+record(bo, "$(P)ZOkay") {
+    field(ZNAM, "BAD")
+    field(ONAM, "GOOD")
+}

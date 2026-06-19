@@ -29,7 +29,7 @@ class RobotRenderer {
         UnloadRenderTexture(view_texture_);
     }
 
-    void update(const std::vector<double>& joints, bool needs_update, bool window_active, bool pv_connected) {
+    void update(const std::vector<double>& joints, double pose_z, bool needs_update, bool window_active, bool pv_connected) {
         if (view_width_ > 0 && view_height_ > 0) {
             if (view_texture_.texture.width != view_width_ || view_texture_.texture.height != view_height_) {
                 UnloadRenderTexture(view_texture_);
@@ -58,6 +58,12 @@ class RobotRenderer {
             robot_model_.draw(0, !pv_connected);
             DrawGrid(10, 0.25f);
             EndMode3D();
+
+            // DrawRectangle(0, 0, 100, 33, RED);
+            // DrawRectangle(0, 33, 100, 33, GREEN);
+            // DrawRectangle(0, 66, 100, 33, RED);
+            // DrawText("<-", 105, pose_z, 24, BLACK);
+
             EndTextureMode();
             // -----------------------------
         }
@@ -113,11 +119,14 @@ class Application {
             "Control:JogSpeedYaw.VAL",
             "RobotiqGripper:Open.PROC",
             "RobotiqGripper:Close.PROC",
+            "Dashboard:UnlockProtectiveStop.PROC",
+            "Receive:PoseZ.VAL"
         });
 
         // These are PVs we need to monitor
         ctxt_.connect(P_ + "Receive:ActualJointPositions.VAL").bind(joint_angles_);
         ctxt_.connect(P_ + "RobotiqGripper:IsOpen.RVAL").bind(gripper_open_);
+        ctxt_.connect(P_ + "Receive:PoseZ.VAL").bind(pose_z_);
     }
 
     void run() {
@@ -141,6 +150,7 @@ class Application {
     RobotRenderer robot_renderer_;
     ActiveWindow active_window_ = ActiveWindow::Robot;
     std::vector<double> joint_angles_;
+    double pose_z_ = 0.0;
     int gripper_open_ = 1;
     bool layout_initialized_ = false;
     float jog_speed_ = 50.0;
@@ -151,7 +161,7 @@ class Application {
     void update() {
         bool new_epics_data = ctxt_.sync();
         auto connected = ctxt_[P_ + "Receive:ActualJointPositions.VAL"].connected();
-        robot_renderer_.update(joint_angles_, new_epics_data, active_window_==ActiveWindow::Robot, connected);
+        robot_renderer_.update(joint_angles_, pose_z_, new_epics_data, active_window_==ActiveWindow::Robot, connected);
     }
 
     // render 3D robot model to 2D texture, draw ImGui
