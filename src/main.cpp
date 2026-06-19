@@ -23,10 +23,19 @@ class RobotRenderer {
         view_texture_(LoadRenderTexture(view_width_, view_height_))
     {
         SetTextureFilter(view_texture_.texture, TEXTURE_FILTER_BILINEAR);
+
+
+        // 1. Load image into CPU RAM
+        Image img = LoadImage("robotiq_handE_screenshot-crop.png");
+        gripper_img_.width = img.width;
+        gripper_img_.height = img.height;
+        gripper_img_.texture = LoadTextureFromImage(img);
+        UnloadImage(img);
     }
 
     ~RobotRenderer() {
         UnloadRenderTexture(view_texture_);
+        UnloadTexture(gripper_img_.texture);
     }
 
     void update(const std::vector<double>& joints, double pose_z, bool needs_update, bool window_active, bool pv_connected) {
@@ -51,6 +60,7 @@ class RobotRenderer {
                 robot_model_.update(joints_rad);
             }
 
+
             BeginTextureMode(view_texture_);
             ClearBackground(RAYWHITE);
             // Draw ------------------------
@@ -59,9 +69,13 @@ class RobotRenderer {
             DrawGrid(10, 0.25f);
             EndMode3D();
 
-            // DrawRectangle(0, 0, 100, 33, RED);
-            // DrawRectangle(0, 33, 100, 33, GREEN);
-            // DrawRectangle(0, 66, 100, 33, RED);
+            // close-up pick view
+            DrawRectangle(0, 105+0-pose_z, 210, 70, ColorAlpha(RED, 0.9));
+            DrawRectangle(0, 105+70-pose_z, 210, 70, ColorAlpha(GREEN, 0.9));
+            DrawRectangle(0, 105+140-pose_z, 210, 70, ColorAlpha(RED, 0.9));
+            // DrawRectangle(0, 0, 210, 210, LIGHTGRAY);
+            DrawTextureEx(gripper_img_.texture, {105 - float(0.30*(gripper_img_.width)/2.0), 0}, 0.0, 0.30, WHITE);
+            DrawCircle(105, 92, 5, BLACK);
             // DrawText("<-", 105, pose_z, 24, BLACK);
 
             EndTextureMode();
@@ -85,6 +99,11 @@ class RobotRenderer {
     int view_width_ = 0;
     int view_height_ = 0;
     RenderTexture2D view_texture_;
+    struct GripperImageTexture {
+        Texture2D texture;
+        int width;
+        int height;
+    } gripper_img_;
     UR robot_model_;
     RLCamera3D cam_;
 };
