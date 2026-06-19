@@ -14,6 +14,20 @@ enum class JogDir { Up, Down, Left, Right, Forward, Backward };
 constexpr int TARGET_FPS = 60;
 constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
 
+constexpr std::array<const char*, 11> safety_mode_labels = {
+    "Normal",
+    "Reduced",
+    "Protective Stopped",
+    "Recovery Mode",
+    "Safeguard Stopped",
+    "System Emergency Stopped",
+    "Robot Emergency Stopped",
+    "Emergency Stopped",
+    "Violation",
+    "Fault",
+    "Stopped Due to Safety",
+};
+
 class RobotRenderer {
   public:
     RobotRenderer() :
@@ -70,9 +84,9 @@ class RobotRenderer {
             EndMode3D();
 
             // close-up pick view
-            DrawRectangle(0, 105+0-pose_z, 210, 70, ColorAlpha(RED, 0.9));
-            DrawRectangle(0, 105+70-pose_z, 210, 70, ColorAlpha(GREEN, 0.9));
-            DrawRectangle(0, 105+140-pose_z, 210, 70, ColorAlpha(RED, 0.9));
+            DrawRectangle(0, pose_z-105+0, 210, 70, ColorAlpha(RED, 0.9));
+            DrawRectangle(0, pose_z-105+70, 210, 70, ColorAlpha(GREEN, 0.9));
+            DrawRectangle(0, pose_z-105+140, 210, 70, ColorAlpha(RED, 0.9));
             // DrawRectangle(0, 0, 210, 210, LIGHTGRAY);
             DrawTextureEx(gripper_img_.texture, {105 - float(0.30*(gripper_img_.width)/2.0), 0}, 0.0, 0.30, WHITE);
             DrawCircle(105, 92, 5, BLACK);
@@ -112,8 +126,7 @@ class Application {
   public:
     Application(const std::string& ioc_prefix) :
         P_(ioc_prefix),
-        rl_window_(1000, 900, "UR EPICS Desktop"),
-        joint_angles_(UR_NUM_AXES, 0.0)
+        rl_window_(1200, 900, "UR EPICS Desktop")
     {
         // RLWindow constructor calls InitWindow, rlImGuiSetup, etc.
 
@@ -126,26 +139,35 @@ class Application {
         io.FontDefault = font;
 
         // Set up EPICS connection
-        // These are just PVs we write to only
+        // These are PVs we only need to write to
         ctxt_.connect(P_, {
-            "Control:JogStart.PROC",
-            "Control:JogStop.PROC",
-            "Control:JogSpeedX.VAL",
-            "Control:JogSpeedY.VAL",
-            "Control:JogSpeedZ.VAL",
-            "Control:JogSpeedRoll.VAL",
-            "Control:JogSpeedPitch.VAL",
-            "Control:JogSpeedYaw.VAL",
-            "RobotiqGripper:Open.PROC",
-            "RobotiqGripper:Close.PROC",
-            "Dashboard:UnlockProtectiveStop.PROC",
-            "Receive:PoseZ.VAL"
+            "UR:Control:JogStart.PROC",
+            "UR:Control:JogStop.PROC",
+            "UR:Control:JogSpeedX.VAL",
+            "UR:Control:JogSpeedY.VAL",
+            "UR:Control:JogSpeedZ.VAL",
+            "UR:Control:JogSpeedRoll.VAL",
+            "UR:Control:JogSpeedPitch.VAL",
+            "UR:Control:JogSpeedYaw.VAL",
+            "UR:RobotiqGripper:Open.PROC",
+            "UR:RobotiqGripper:Close.PROC",
+            "UR:ClearFault.PROC",
+            "UR:Receive:PoseZ.VAL",
+            "m1.TWR",
+            "m1.TWF",
+            "m1.STOP"
         });
 
         // These are PVs we need to monitor
-        ctxt_.connect(P_ + "Receive:ActualJointPositions.VAL").bind(joint_angles_);
-        ctxt_.connect(P_ + "RobotiqGripper:IsOpen.RVAL").bind(gripper_open_);
-        ctxt_.connect(P_ + "Receive:PoseZ.VAL").bind(pose_z_);
+        ctxt_.connect(P_ + "UR:Receive:ActualJointPositions.VAL").bind(epics_.joint_angles);
+        ctxt_.connect(P_ + "UR:RobotiqGripper:IsOpen.RVAL").bind(epics_.gripper_open);
+        ctxt_.connect(P_ + "UR:RobotiqGripper:IsClosed.RVAL").bind(epics_.gripper_closed);
+        ctxt_.connect(P_ + "UR:Receive:PoseZ.VAL").bind(epics_.pose_z);
+        ctxt_.connect(P_ + "UR:Receive:SafetyStatusBits.VAL").bind(epics_.safety_status_bits);
+        ctxt_.connect(P_ + "m1.VAL").bind(epics_.m1_val);
+        ctxt_.connect(P_ + "m1.TWV").bind(epics_.m1_twv);
+        ctxt_.connect(P_ + "m1.RBV").bind(epics_.m1_rbv);
+        ctxt_.connect(P_ + "m1.DESC").bind(epics_.m1_desc);
     }
 
     void run() {
@@ -163,24 +185,36 @@ class Application {
     };
 
   private:
-    const std::string P_;
-    pace::Context ctxt_;
     RLWindow rl_window_;
     RobotRenderer robot_renderer_;
     ActiveWindow active_window_ = ActiveWindow::Robot;
-    std::vector<double> joint_angles_;
-    double pose_z_ = 0.0;
-    int gripper_open_ = 1;
+
     bool layout_initialized_ = false;
     float jog_speed_ = 50.0;
     static constexpr double JOG_INTERVAL = 0.25;
     std::array<double, 6> jog_last_time_{};
 
+    const std::string P_;
+    pace::Context ctxt_;
+
+    // Variables updated by EPICS monitor via pace::Context::sync()
+    struct EPICSMonitorValues {
+        std::vector<double> joint_angles = std::vector<double>(UR_NUM_AXES, 0.0);
+        double pose_z = 0.0;
+        int gripper_open = 1;
+        int gripper_closed = 0;
+        int safety_status_bits = 1;
+        double m1_val = 0.0;
+        double m1_twv = 0.0;
+        double m1_rbv = 0.0;
+        std::string m1_desc;
+    } epics_;
+
     // sync EPICS, update robot model
     void update() {
         bool new_epics_data = ctxt_.sync();
-        auto connected = ctxt_[P_ + "Receive:ActualJointPositions.VAL"].connected();
-        robot_renderer_.update(joint_angles_, pose_z_, new_epics_data, active_window_==ActiveWindow::Robot, connected);
+        auto connected = ctxt_[P_ + "UR:Receive:ActualJointPositions.VAL"].connected();
+        robot_renderer_.update(epics_.joint_angles, epics_.pose_z, new_epics_data, active_window_==ActiveWindow::Robot, connected);
     }
 
     // render 3D robot model to 2D texture, draw ImGui
@@ -197,24 +231,24 @@ class Application {
             layout_initialized_ = true;
         }
 
-        // Popup if any PVs are disconnected
-        if (!ctxt_.all_connected()) {
-            ImGui::OpenPopup("PV(s) Disconnected");
-        }
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
-                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
-        {
-            ImGui::Text("One or more PVs are not connected.");
-            ImGui::Separator();
-
-            bool connected = ctxt_.all_connected();
-            if (connected) {
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
-        }
+        // // Popup if any PVs are disconnected
+        // if (!ctxt_.all_connected()) {
+            // ImGui::OpenPopup("PV(s) Disconnected");
+        // }
+        // ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        // ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        // if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
+                // ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+        // {
+            // ImGui::Text("One or more PVs are not connected.");
+            // ImGui::Separator();
+//
+            // bool connected = ctxt_.all_connected();
+            // if (connected) {
+                // ImGui::CloseCurrentPopup();
+            // }
+            // ImGui::EndPopup();
+        // }
 
         draw_robot_window();
         draw_controls_window();
@@ -230,7 +264,7 @@ class Application {
         ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
         ImGuiID bottom, center;
-        ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.35f, &bottom, &center);
+        ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Down, 0.40f, &bottom, &center);
 
         ImGui::DockBuilderDockWindow("Robot", center);
         ImGui::DockBuilderDockWindow("Controls", bottom);
@@ -241,14 +275,14 @@ class Application {
     void set_jog_speeds(std::vector<double> speeds) {
         static const std::array<std::string, UR_NUM_AXES> axis_names = {"X", "Y", "Z", "Roll", "Pitch", "Yaw"};
         for (size_t i = 0; i < UR_NUM_AXES; i++) {
-            const auto pv_name = P_ + "Control:JogSpeed" + axis_names[i] + ".VAL";
+            const auto pv_name = P_ + "UR:Control:JogSpeed" + axis_names[i] + ".VAL";
             ctxt_.put(pv_name, speeds[i]);
         }
     }
 
-    void jog_start() { ctxt_.put(P_ + "Control:JogStart.PROC", 1); }
+    void jog_start() { ctxt_.put(P_ + "UR:Control:JogStart.PROC", 1); }
 
-    void jog_stop() { ctxt_.put(P_ + "Control:JogStop.PROC", 1); }
+    void jog_stop() { ctxt_.put(P_ + "UR:Control:JogStop.PROC", 1); }
 
     void jog_button(const char* label, ImVec2 size, JogDir dir) {
         ImGui::Button(label, size);
@@ -257,8 +291,8 @@ class Application {
         }
 
         if (ImGui::IsItemActive()) {
-            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected() ||
-                !ctxt_[P_ + "Control:JogStop.PROC"].connected()) {
+            if (!ctxt_[P_ + "UR:Control:JogStart.PROC"].connected() ||
+                !ctxt_[P_ + "UR:Control:JogStop.PROC"].connected()) {
                 return;
             }
             double now = GetTime();
@@ -290,8 +324,8 @@ class Application {
         }
 
         if (ImGui::IsItemDeactivated()) {
-            if (!ctxt_[P_ + "Control:JogStart.PROC"].connected() ||
-                !ctxt_[P_ + "Control:JogStop.PROC"].connected()) {
+            if (!ctxt_[P_ + "UR:Control:JogStart.PROC"].connected() ||
+                !ctxt_[P_ + "UR:Control:JogStop.PROC"].connected()) {
                 return;
             }
             jog_stop();
@@ -307,58 +341,163 @@ class Application {
             active_window_ = ActiveWindow::Controls;
         }
 
-        ImVec2 btn = ImVec2(50.0f, 50.0f);
-        ImGuiTableFlags flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX;
+        ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX;
 
-        if (ImGui::BeginTable("jog_table", 7, flags)) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn(); jog_button("##jog_fwd", btn, JogDir::Forward);
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn(); jog_button("##jog_up", btn, JogDir::Up);
-            ImGui::TableNextColumn();
+        if (ImGui::BeginTable("controls_layout", 3)) {
+            ImGui::TableSetupColumn("left_col", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn("spacer", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+            ImGui::TableSetupColumn("right_col", ImGuiTableColumnFlags_WidthStretch);
 
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); jog_button("##jog_left", btn, JogDir::Left);
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn(); jog_button("##jog_right", btn, JogDir::Right);
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
+
+            // Column 1: jog pad + gripper /////////////////////////
             ImGui::TableNextColumn();
 
-            ImGui::TableNextRow();
+            if (ImGui::BeginTable("jog_table", 7, table_flags)) {
+                const ImVec2 btn_size = ImVec2(50.0f, 50.0f);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn(); jog_button("##jog_fwd", btn_size, JogDir::Forward);
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn(); jog_button("##jog_up", btn_size, JogDir::Up);
+                ImGui::TableNextColumn();
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); jog_button("##jog_left", btn_size, JogDir::Left);
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn(); jog_button("##jog_right", btn_size, JogDir::Right);
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn(); jog_button("##jog_bck", btn_size, JogDir::Backward);
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn(); jog_button("##jog_down", btn_size, JogDir::Down);
+                ImGui::TableNextColumn();
+
+                ImGui::EndTable();
+            }
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::Text("Gripper:");
+            ImGui::SameLine();
+            if (ImGui::Button("Open", ImVec2(100, 0))) {
+                ctxt_.put(P_ + "UR:RobotiqGripper:Open.PROC", 1);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Close", ImVec2(100, 0))) {
+                ctxt_.put(P_ + "UR:RobotiqGripper:Close.PROC", 1);
+            }
+            ImGui::SameLine();
+            ImGui::Spacing();
+            ImGui::SameLine();
+            if (epics_.gripper_open) {
+                ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Open  ");
+            } else if (epics_.gripper_closed) {
+                ImGui::TextColored({1.0, 0.0, 0.0, 1.0}, "Closed");
+            } else {
+                ImGui::TextColored({1.0, 1.0, 1.0, 1.0}, "      ");
+            }
+
+            // Column 2 ////////////////////////////////////////////
+            // just a spacer
             ImGui::TableNextColumn();
-            ImGui::TableNextColumn(); jog_button("##jog_bck", btn, JogDir::Backward);
+
+            // Column 3 ////////////////////////////////////////////
             ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn(); jog_button("##jog_down", btn, JogDir::Down);
-            ImGui::TableNextColumn();
+
+            const ImVec2 bsize = ImVec2{40.0, 40.0};
+            const float input_width = 120.0f;
+            float pad_y = (bsize.y - ImGui::GetFontSize()) * 0.5f;
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, pad_y));
+            if (ImGui::BeginTable("rot_motor_table", 3, table_flags | ImGuiTableFlags_BordersOuter)) {
+                ImGui::TableSetupColumn("col1", ImGuiTableColumnFlags_WidthFixed, bsize.x);
+                ImGui::TableSetupColumn("col2", ImGuiTableColumnFlags_WidthFixed, input_width);
+                ImGui::TableSetupColumn("col3", ImGuiTableColumnFlags_WidthFixed, bsize.x);
+
+                // row 1: header + RBV
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::Text("%s", epics_.m1_desc.c_str());
+                ImGui::TextColored({0.0, 0.75, 1.0, 1.0},"%.2f", epics_.m1_rbv);
+                ImGui::TableNextColumn();
+
+                // row 2
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                static double m1_val_out;
+                m1_val_out = epics_.m1_val;
+                ImGui::SetNextItemWidth(input_width);
+                if (ImGui::InputDouble("##rot_val", &m1_val_out, 0.0, 0.0, "%.2f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    ctxt_.put(P_ + "m1.VAL", m1_val_out);
+                }
+                ImGui::TableNextColumn();
+
+                // row 3
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                if (ImGui::Button("##rot_twr", bsize)) {
+                    ctxt_.put(P_ + "m1.TWR", 1);
+                }
+                ImGui::TableNextColumn();
+                static double m1_twv_out;
+                m1_twv_out = epics_.m1_twv;
+                ImGui::SetNextItemWidth(input_width);
+                if (ImGui::InputDouble("##rot_twv", &m1_twv_out, 0.0, 0.0, "%.2f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    ctxt_.put(P_ + "m1.TWV", m1_twv_out);
+                }
+                ImGui::TableNextColumn();
+                if (ImGui::Button("##rot_twf", bsize)) {
+                    ctxt_.put(P_ + "m1.TWF", 1);
+                }
+
+                // row 4
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::Dummy({15.0, 40.0});
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+                if (ImGui::Button("STOP##rot_stop", {70, 40.0})) {
+                    ctxt_.put(P_ + "m1.STOP", 1);
+                }
+                ImGui::PopStyleColor(2);
+
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+
+            for (size_t i = 0; i < safety_mode_labels.size()-1; i++) {
+                if (epics_.safety_status_bits & (1 << i)) {
+                    const char* label = safety_mode_labels[i];
+                    ImGui::Text("Safety:");
+                    ImGui::SameLine();
+                    if (i == 0) {
+                        ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "%s", label);
+                    } else {
+                        ImGui::TextColored({1.0, 1.0, 0.0, 1.0}, "%s", label);
+                    }
+                }
+            }
+
+            ImGui::PushFont(nullptr, ImGui::GetFontSize() * 0.6f);
+            if (ImGui::Button("Clear Fault##clear_fault", {180.0, 30.0})) {
+                ctxt_.put(P_ + "UR:ClearFault.PROC", 1);
+            }
+            ImGui::PopFont();
 
             ImGui::EndTable();
-        }
-
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Text("Gripper:");
-        ImGui::SameLine();
-        if (ImGui::Button("Open", ImVec2(100, 0))) {
-            ctxt_.put(P_ + "RobotiqGripper:Open.PROC", 1);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Close", ImVec2(100, 0))) {
-            ctxt_.put(P_ + "RobotiqGripper:Close.PROC", 1);
-        }
-        ImGui::SameLine();
-        ImGui::Spacing();
-        ImGui::SameLine();
-        if (gripper_open_) {
-            ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Open");
-        } else {
-            ImGui::TextColored({1.0, 0.0, 0.0, 1.0}, "Closed");
         }
 
         ImGui::End();

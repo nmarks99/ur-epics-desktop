@@ -6,8 +6,8 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
-#include <thread>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -17,6 +17,12 @@
 
 namespace pace {
 
+struct Enum {
+    std::vector<std::string> choices;
+    std::string choice;
+    int index = 0;
+};
+
 namespace detail {
 
 /// \brief std::variant type that holds the latest value from an EPICS subscription.
@@ -24,7 +30,7 @@ namespace detail {
 /// PVs that cannot be represented as one of the types in this variant are
 /// unsupported.
 using ValueVariant =
-    std::variant<std::monostate, double, int, std::string, std::vector<double>, std::vector<int>>;
+    std::variant<std::monostate, double, int, std::string, std::vector<double>, std::vector<int>, Enum>;
 
 /// \brief Convert a ValueVariant to a target type T.
 ///
@@ -37,6 +43,20 @@ std::optional<T> convert(const ValueVariant& v, int precision = 4) {
     // Target type T is the same as the variant's type
     if (auto* val = std::get_if<T>(&v)) {
         return *val;
+    }
+
+    // Enum -> arithmetic: extract index
+    if constexpr (std::is_arithmetic_v<T>) {
+        if (auto* e = std::get_if<Enum>(&v)) {
+            return static_cast<T>(e->index);
+        }
+    }
+
+    // Enum -> string: extract current choice string
+    if constexpr (std::is_same_v<T, std::string>) {
+        if (auto* e = std::get_if<Enum>(&v)) {
+            return e->choice;
+        }
     }
 
     // Target type T and variant are different, but
@@ -118,6 +138,8 @@ struct MonitorSlot : MonitorSlotBase {
                     } else if constexpr (std::is_same_v<T, std::vector<int>>) {
                         auto arr = field.as<pvxs::shared_array<const int32_t>>();
                         *target.pvalue = std::vector<int>(arr.begin(), arr.end());
+                    } else if constexpr (std::is_same_v<T, Enum>) {
+                        // Handled via staged_value_, not here with pvxs field extraction
                     } else {
                         *target.pvalue = field.as<T>();
                     }
@@ -145,7 +167,7 @@ class ChannelBase {
   public:
     ChannelBase(const std::string& pv_name) : pv_name_(pv_name) {}
 
-    // Delete copy constructor and move assignment operator
+    // Delete copy constructor and copy assignment operator
     ChannelBase(const ChannelBase&) = delete;
     ChannelBase& operator=(const ChannelBase&) = delete;
 
@@ -165,21 +187,15 @@ class ChannelBase {
     /// \return true if the put was sent, false if the channel is disconnected
     /// or the value is not convertible to a supported type.
     template <typename T>
-    bool put(const T& value) {
-        return put_var(detail::ValueVariant(value));
+    bool put(const T& value, const std::string& field_path = "value") {
+        return put_var(detail::ValueVariant(value), field_path);
     }
-
-    /// \brief Shorthand for put(). Writes a value to the PV.
-    template <typename T>
-    void operator=(const T& value) {
-        put_var(detail::ValueVariant(value));
-    }
-    /// \overload
-    void operator=(const char* value) { put_var(detail::ValueVariant(std::string(value))); }
 
     /// \brief Write a string literal to the PV
     /// \overload
-    bool put(const char* value) { return put_var(detail::ValueVariant(std::string(value))); }
+    bool put(const char* value, const std::string& field_path = "value") {
+        return put_var(detail::ValueVariant(std::string(value)), field_path);
+    }
 
     /// \brief Synchronous get. Fetches the current value from the IOC.
     ///
@@ -246,9 +262,9 @@ class ChannelBase {
         std::lock_guard lock(mutex_);
         for (auto& slot : slots_) {
             if (pvxs_value_) {
-                slot->copy_to_targets(staged_value_, precision_, &pvxs_value_.value());
+                slot->copy_to_targets(staged_value_, metadata_.precision, &pvxs_value_.value());
             } else {
-                slot->copy_to_targets(staged_value_, precision_, nullptr);
+                slot->copy_to_targets(staged_value_, metadata_.precision, nullptr);
             }
         }
         new_data_.store(false, std::memory_order_relaxed);
@@ -270,7 +286,7 @@ class ChannelBase {
 
   protected:
     /// \brief CA/PVA specific put implementation.
-    virtual bool put_var(const detail::ValueVariant& value) = 0;
+    virtual bool put_var(const detail::ValueVariant& value, const std::string& field_path) = 0;
 
     /// \brief CA/PVA specific get implementation.
     virtual detail::ValueVariant get_var(const std::string& field_path, double timeout) = 0;
@@ -283,7 +299,10 @@ class ChannelBase {
     std::atomic<bool> new_data_{false};
     std::optional<pvxs::Value> pvxs_value_;
     detail::ValueVariant staged_value_;
-    int precision_ = 4;
+    struct PVMetaData {
+        int precision = 4;
+        std::vector<std::string> enum_choices;
+    } metadata_;
 };
 
 /// \brief Channel Access implementation of ChannelBase.
@@ -334,7 +353,7 @@ class CAChannel : public ChannelBase {
     evid evt_id_ = nullptr;
 
     /// \brief CA-specific put implementation. Sends the value via ca_put + ca_flush_io.
-    bool put_var(const detail::ValueVariant& value) override {
+    bool put_var(const detail::ValueVariant& value, const std::string&) override {
         if (!connected()) {
             return false;
         }
@@ -349,8 +368,10 @@ class CAChannel : public ChannelBase {
             strncpy(v, s->c_str(), sizeof(v) - 1);
             v[sizeof(v) - 1] = '\0';
             ca_put(DBR_STRING, channel_id_, &v);
+        } else if (auto* e = std::get_if<Enum>(&value)) {
+            dbr_enum_t val = static_cast<dbr_enum_t>(e->index);
+            ca_put(DBR_ENUM, channel_id_, &val);
         } else {
-            // No other puts are supported yet
             return false;
         }
         ca_flush_io();
@@ -376,6 +397,8 @@ class CAChannel : public ChannelBase {
 
             if (native == DBF_FLOAT || native == DBF_DOUBLE) {
                 ca_get_callback(DBR_CTRL_DOUBLE, channel_id_, precision_callback, this);
+            } else if (native == DBF_ENUM) {
+                ca_get_callback(DBR_CTRL_ENUM, channel_id_, enum_metadata_callback, this);
             }
 
             SEVCHK(ca_flush_io(), "ca_flush_io");
@@ -400,14 +423,26 @@ class CAChannel : public ChannelBase {
         std::lock_guard lock(self->mutex_);
         if (evt.status == ECA_NORMAL) {
             auto* ctrl = static_cast<const struct dbr_ctrl_double*>(evt.dbr);
-            self->precision_ = ctrl->precision;
+            self->metadata_.precision = ctrl->precision;
         } else {
-            self->precision_ = 4;
+            self->metadata_.precision = 4;
+        }
+    }
+
+    static void enum_metadata_callback(struct event_handler_args evt) {
+        auto* self = static_cast<CAChannel*>(evt.usr);
+        std::lock_guard lock(self->mutex_);
+        if (evt.status == ECA_NORMAL) {
+            auto* ctrl = static_cast<const struct dbr_ctrl_enum*>(evt.dbr);
+            self->metadata_.enum_choices.clear();
+            for (int i = 0; i < ctrl->no_str; i++) {
+                self->metadata_.enum_choices.emplace_back(ctrl->strs[i]);
+            }
         }
     }
 
     /// \brief CA-specific get implementation. Fetches the value via ca_get + ca_pend_io.
-    detail::ValueVariant get_var(const std::string& field_path, double timeout) override {
+    detail::ValueVariant get_var(const std::string&, double timeout) override {
         if (!connected()) {
             return {};
         }
@@ -463,12 +498,23 @@ class CAChannel : public ChannelBase {
             break;
         }
         case DBR_ENUM: {
-            dbr_enum_t data;
-            ca_get(DBR_ENUM, channel_id_, &data);
+            struct dbr_ctrl_enum data;
+            ca_get(DBR_CTRL_ENUM, channel_id_, &data);
             if (ca_pend_io(timeout) != ECA_NORMAL) {
                 return {};
             }
-            value = static_cast<int>(data);
+            std::lock_guard lock(mutex_);
+            if (metadata_.enum_choices.empty()) {
+                for (int i = 0; i < data.no_str; i++) {
+                    metadata_.enum_choices.emplace_back(data.strs[i]);
+                }
+            }
+            Enum e;
+            e.choices = metadata_.enum_choices;
+            e.index = static_cast<int>(data.value);
+            e.choice = (data.value < metadata_.enum_choices.size()) ? metadata_.enum_choices[data.value]
+                                                                    : std::string();
+            value = std::move(e);
             break;
         }
         case DBR_STRING: {
@@ -578,6 +624,16 @@ class CAChannel : public ChannelBase {
         }
 
         std::lock_guard lock(self->mutex_);
+        if (evt.type == DBR_ENUM && !self->metadata_.enum_choices.empty()) {
+            if (auto* idx = std::get_if<int>(&value)) {
+                Enum e;
+                e.choices = self->metadata_.enum_choices;
+                e.index = *idx;
+                e.choice = (*idx >= 0 && *idx < static_cast<int>(e.choices.size())) ? e.choices[*idx]
+                                                                                    : std::string();
+                value = std::move(e);
+            }
+        }
         self->staged_value_ = value;
         self->new_data_.store(true, std::memory_order_release);
     }
@@ -620,6 +676,7 @@ class PVAChannel : public ChannelBase {
     std::atomic<bool> wants_monitor_{false};
     std::shared_ptr<pvxs::client::Subscription> subscription_;
     std::shared_ptr<pvxs::client::Connect> connection_;
+    std::shared_ptr<pvxs::client::Operation> put_operation_;
     pvxs::client::Context& ctx_;
 
     void start_monitor() {
@@ -630,57 +687,104 @@ class PVAChannel : public ChannelBase {
             return;
         }
 
-        subscription_ = ctx_.monitor(pv_name_)
-                            .event([this](pvxs::client::Subscription& sub) {
-                                try {
-                                    while (auto update = sub.pop()) {
-                                        std::lock_guard lock(mutex_);
-                                        pvxs_value_ = update;
-                                        detail::ValueVariant value;
-                                        auto pva_value_field = update["value"];
-                                        if (pva_value_field) {
-                                            switch (pva_value_field.type().code) {
-                                            case pvxs::TypeCode::Float64:
-                                                value = pva_value_field.as<double>();
-                                                break;
-                                            case pvxs::TypeCode::Float32:
-                                                value = static_cast<double>(pva_value_field.as<float>());
-                                                break;
-                                            case pvxs::TypeCode::Int32:
-                                                value = static_cast<int>(pva_value_field.as<int32_t>());
-                                                break;
-                                            case pvxs::TypeCode::Int16:
-                                                value = static_cast<int>(pva_value_field.as<int16_t>());
-                                                break;
-                                            case pvxs::TypeCode::UInt16:
-                                                value = static_cast<int>(pva_value_field.as<uint16_t>());
-                                                break;
-                                            case pvxs::TypeCode::Int8:
-                                                value = static_cast<int>(pva_value_field.as<int8_t>());
-                                                break;
-                                            case pvxs::TypeCode::UInt8:
-                                                value = static_cast<int>(pva_value_field.as<uint8_t>());
-                                                break;
-                                            case pvxs::TypeCode::String:
-                                                value = pva_value_field.as<std::string>();
-                                                break;
-                                            default:
-                                                continue;
-                                            }
-                                            staged_value_ = value;
+        subscription_ =
+            ctx_.monitor(pv_name_)
+                .event([this](pvxs::client::Subscription& sub) {
+                    try {
+                        while (auto update = sub.pop()) {
+                            std::lock_guard lock(mutex_);
+                            pvxs_value_ = update;
+                            detail::ValueVariant value;
+                            auto pva_value_field = update["value"];
+                            if (pva_value_field) {
+                                switch (pva_value_field.type().code) {
+                                case pvxs::TypeCode::Struct: {
+                                    auto idx_field = pva_value_field["index"];
+                                    auto choices_field = pva_value_field["choices"];
+                                    if (idx_field && choices_field) {
+                                        Enum e;
+                                        e.index = idx_field.as<int32_t>();
+                                        auto arr = choices_field.as<pvxs::shared_array<const std::string>>();
+                                        for (auto& s : arr) {
+                                            e.choices.emplace_back(s);
                                         }
-                                        new_data_.store(true, std::memory_order_release);
+                                        e.choice =
+                                            (e.index >= 0 && e.index < static_cast<int>(e.choices.size()))
+                                                ? e.choices[e.index]
+                                                : std::string();
+                                        metadata_.enum_choices = e.choices;
+                                        value = std::move(e);
+                                    } else {
+                                        continue;
                                     }
-                                } catch (pvxs::client::Connected&) {
-                                } catch (pvxs::client::Finished&) {
-                                } catch (pvxs::client::Disconnect&) {
+                                    break;
                                 }
-                            })
-                            .exec();
+                                case pvxs::TypeCode::Float64:
+                                    value = pva_value_field.as<double>();
+                                    break;
+                                case pvxs::TypeCode::Float32:
+                                    value = static_cast<double>(pva_value_field.as<float>());
+                                    break;
+                                case pvxs::TypeCode::Int32:
+                                    value = static_cast<int>(pva_value_field.as<int32_t>());
+                                    break;
+                                case pvxs::TypeCode::Int16:
+                                    value = static_cast<int>(pva_value_field.as<int16_t>());
+                                    break;
+                                case pvxs::TypeCode::UInt16:
+                                    value = static_cast<int>(pva_value_field.as<uint16_t>());
+                                    break;
+                                case pvxs::TypeCode::Int8:
+                                    value = static_cast<int>(pva_value_field.as<int8_t>());
+                                    break;
+                                case pvxs::TypeCode::UInt8:
+                                    value = static_cast<int>(pva_value_field.as<uint8_t>());
+                                    break;
+                                case pvxs::TypeCode::String:
+                                    value = pva_value_field.as<std::string>();
+                                    break;
+                                default:
+                                    continue;
+                                }
+                                staged_value_ = value;
+                            }
+                            new_data_.store(true, std::memory_order_release);
+                        }
+                    } catch (pvxs::client::Connected&) {
+                    } catch (pvxs::client::Finished&) {
+                    } catch (pvxs::client::Disconnect&) {
+                    }
+                })
+                .exec();
     }
 
-    /// \brief PVA-specific put implementation. Not yet implemented.
-    bool put_var(const detail::ValueVariant& value) override { return false; }
+    /// \brief PVA-specific put implementation. Sends the value via pvxs::client::Context::put.
+    ///
+    /// The put is fire-and-forget: the returned Operation is stored in
+    /// put_operation_ to keep it alive until it completes or is replaced
+    /// by the next put. For Enum values, the index is written to
+    /// "value.index" regardless of field_path.
+    bool put_var(const detail::ValueVariant& value, const std::string& field_path) override {
+        if (!connected()) {
+            return false;
+        }
+        pvxs::client::PutBuilder put_builder;
+        if (auto* v = std::get_if<double>(&value)) {
+            put_builder = ctx_.put(pv_name_).set(field_path, static_cast<double>(*v));
+        } else if (auto* v = std::get_if<int>(&value)) {
+            put_builder = ctx_.put(pv_name_).set(field_path, static_cast<int>(*v));
+        } else if (auto* v = std::get_if<Enum>(&value)) {
+            put_builder = ctx_.put(pv_name_).set("value.index", static_cast<int>(v->index));
+        } else if (auto* v = std::get_if<std::string>(&value)) {
+            put_builder = ctx_.put(pv_name_).set(field_path, static_cast<std::string>(*v));
+        }
+        else {
+            // unsupported type
+            return false;
+        }
+        put_operation_ = put_builder.exec();
+        return true;
+    }
 
     /// \brief PVA-specific get implementation. Fetches the value via pvxs::client::Context::get.
     detail::ValueVariant get_var(const std::string& field_path, double timeout) override {
@@ -693,6 +797,23 @@ class PVAChannel : public ChannelBase {
             if (auto val = result[field_path]) {
                 detail::ValueVariant var;
                 switch (val.type().code) {
+                case pvxs::TypeCode::Struct: {
+                    auto idx_field = val["index"];
+                    auto choices_field = val["choices"];
+                    if (idx_field && choices_field) {
+                        Enum e;
+                        e.index = idx_field.as<int32_t>();
+                        auto arr = choices_field.as<pvxs::shared_array<const std::string>>();
+                        for (auto& s : arr) {
+                            e.choices.emplace_back(s);
+                        }
+                        e.choice = (e.index >= 0 && e.index < static_cast<int>(e.choices.size()))
+                                       ? e.choices[e.index]
+                                       : std::string();
+                        var = std::move(e);
+                    }
+                    break;
+                }
                 case pvxs::TypeCode::Float64:
                     var = val.as<double>();
                     break;
@@ -734,13 +855,13 @@ class PVAChannel : public ChannelBase {
 ///
 /// Context is the primary interface for monitoring multiple PVs. It supports
 /// both CA and PVA protocols (including mixed usage via protocol prefixes).
-/// Add PVs with add(), bind local variables with bind(), then call sync()
+/// Add PVs to the context with connect(), bind local variables with bind(), then call sync()
 /// periodically to update all bound variables at once.
 ///
 /// Example usage:
 /// \code
 ///     pace::Context ctxt;
-///     ctxt.add("MyIOC:", {"m1.RBV", "m1.DMOV"});
+///     ctxt.connect("MyIOC:", {"m1.RBV", "m1.DMOV"});
 ///
 ///     double position = 0.0;
 ///     int done = 0;
@@ -771,12 +892,12 @@ class Context {
 
     ~Context() {
         channel_map_.clear();
-        if (ca_current_context()) {
+        if (ca_initialized_) {
             ca_context_destroy();
         }
     }
 
-    // Delete copy constructor and move assignment operator
+    // Delete copy constructor and copy assignment operator
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
 
@@ -850,8 +971,8 @@ class Context {
     /// \param pv_name  The PV name, must match a previous connect() call.
     /// \param value    The value to write.
     template <typename T>
-    bool put(const std::string& pv_name, const T& value) {
-        return get_channel(pv_name).put(value);
+    bool put(const std::string& pv_name, const T& value, const std::string& field_path = "value") {
+        return get_channel(pv_name).put(value, field_path);
     }
 
     /// \brief Synchronous get.
@@ -932,8 +1053,8 @@ class Context {
     const std::string default_protocol_ = "ca";
     bool ca_initialized_ = false;
     bool pva_initialized_ = false;
-    std::unordered_map<std::string, std::unique_ptr<ChannelBase>> channel_map_;
     std::optional<pvxs::client::Context> pvxs_ctxt_;
+    std::unordered_map<std::string, std::unique_ptr<ChannelBase>> channel_map_;
 
     /// \brief Waits for the given PV to connect before returning. Throws on timeout.
     void wait_connection(const std::string& pv_name, double timeout) {
