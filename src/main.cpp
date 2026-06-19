@@ -83,14 +83,14 @@ class RobotRenderer {
             DrawGrid(10, 0.25f);
             EndMode3D();
 
-            // close-up pick view
-            DrawRectangle(0, pose_z-105+0, 210, 70, ColorAlpha(RED, 0.9));
-            DrawRectangle(0, pose_z-105+70, 210, 70, ColorAlpha(GREEN, 0.9));
-            DrawRectangle(0, pose_z-105+140, 210, 70, ColorAlpha(RED, 0.9));
-            // DrawRectangle(0, 0, 210, 210, LIGHTGRAY);
-            DrawTextureEx(gripper_img_.texture, {105 - float(0.30*(gripper_img_.width)/2.0), 0}, 0.0, 0.30, WHITE);
-            DrawCircle(105, 92, 5, BLACK);
-            // DrawText("<-", 105, pose_z, 24, BLACK);
+            // // close-up pick view
+            // DrawRectangle(0, pose_z-105+0, 210, 70, ColorAlpha(RED, 0.9));
+            // DrawRectangle(0, pose_z-105+70, 210, 70, ColorAlpha(GREEN, 0.9));
+            // DrawRectangle(0, pose_z-105+140, 210, 70, ColorAlpha(RED, 0.9));
+            // // DrawRectangle(0, 0, 210, 210, LIGHTGRAY);
+            // DrawTextureEx(gripper_img_.texture, {105 - float(0.30*(gripper_img_.width)/2.0), 0}, 0.0, 0.30, WHITE);
+            // DrawCircle(105, 92, 5, BLACK);
+            // // DrawText("<-", 105, pose_z, 24, BLACK);
 
             EndTextureMode();
             // -----------------------------
@@ -231,24 +231,24 @@ class Application {
             layout_initialized_ = true;
         }
 
-        // // Popup if any PVs are disconnected
-        // if (!ctxt_.all_connected()) {
-            // ImGui::OpenPopup("PV(s) Disconnected");
-        // }
-        // ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-        // ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        // if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
-                // ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
-        // {
-            // ImGui::Text("One or more PVs are not connected.");
-            // ImGui::Separator();
-//
-            // bool connected = ctxt_.all_connected();
-            // if (connected) {
-                // ImGui::CloseCurrentPopup();
-            // }
-            // ImGui::EndPopup();
-        // }
+        // Popup if any PVs are disconnected
+        if (!ctxt_.all_connected()) {
+            ImGui::OpenPopup("PV(s) Disconnected");
+        }
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+        {
+            ImGui::Text("One or more PVs are not connected.");
+            ImGui::Separator();
+
+            bool connected = ctxt_.all_connected();
+            if (connected) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
 
         draw_robot_window();
         draw_controls_window();
@@ -343,9 +343,11 @@ class Application {
 
         ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX;
 
-        if (ImGui::BeginTable("controls_layout", 3)) {
+        if (ImGui::BeginTable("controls_layout", 5)) {
             ImGui::TableSetupColumn("left_col", ImGuiTableColumnFlags_WidthFixed);
-            ImGui::TableSetupColumn("spacer", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+            ImGui::TableSetupColumn("spacer1", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+            ImGui::TableSetupColumn("mid_col", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn("spacer2", ImGuiTableColumnFlags_WidthFixed, 40.0f);
             ImGui::TableSetupColumn("right_col", ImGuiTableColumnFlags_WidthStretch);
 
             ImGui::TableNextRow();
@@ -407,11 +409,42 @@ class Application {
                 ImGui::TextColored({1.0, 1.0, 1.0, 1.0}, "      ");
             }
 
-            // Column 2 ////////////////////////////////////////////
-            // just a spacer
+            // Column 2: spacer ////////////////////////////////////
             ImGui::TableNextColumn();
 
-            // Column 3 ////////////////////////////////////////////
+            // Column 3: safety status + clear fault ////////////////
+            ImGui::TableNextColumn();
+
+            if (ImGui::Button("SCAN##start_scan", {120.0, 40.0})) {
+                // TODO:
+                // ctxt_.put(P_ + "UR:ClearFault.PROC", 1);
+            }
+            ImGui::SameLine();
+            ImGui::Text("Done");
+
+            for (size_t i = 0; i < safety_mode_labels.size()-1; i++) {
+                if (epics_.safety_status_bits & (1 << i)) {
+                    const char* label = safety_mode_labels[i];
+                    ImGui::Text("Safety:");
+                    ImGui::SameLine();
+                    if (i == 0) {
+                        ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "%s", label);
+                    } else {
+                        ImGui::TextColored({1.0, 1.0, 0.0, 1.0}, "%s", label);
+                    }
+                }
+            }
+
+            ImGui::PushFont(nullptr, ImGui::GetFontSize() * 0.6f);
+            if (ImGui::Button("Clear Fault##clear_fault", {180.0, 30.0})) {
+                ctxt_.put(P_ + "UR:ClearFault.PROC", 1);
+            }
+            ImGui::PopFont();
+
+            // Column 4: spacer ////////////////////////////////////
+            ImGui::TableNextColumn();
+
+            // Column 5: motor controls ////////////////////////////
             ImGui::TableNextColumn();
 
             const ImVec2 bsize = ImVec2{40.0, 40.0};
@@ -477,25 +510,6 @@ class Application {
                 ImGui::EndTable();
             }
             ImGui::PopStyleVar();
-
-            for (size_t i = 0; i < safety_mode_labels.size()-1; i++) {
-                if (epics_.safety_status_bits & (1 << i)) {
-                    const char* label = safety_mode_labels[i];
-                    ImGui::Text("Safety:");
-                    ImGui::SameLine();
-                    if (i == 0) {
-                        ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "%s", label);
-                    } else {
-                        ImGui::TextColored({1.0, 1.0, 0.0, 1.0}, "%s", label);
-                    }
-                }
-            }
-
-            ImGui::PushFont(nullptr, ImGui::GetFontSize() * 0.6f);
-            if (ImGui::Button("Clear Fault##clear_fault", {180.0, 30.0})) {
-                ctxt_.put(P_ + "UR:ClearFault.PROC", 1);
-            }
-            ImGui::PopFont();
 
             ImGui::EndTable();
         }
