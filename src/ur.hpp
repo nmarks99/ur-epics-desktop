@@ -18,10 +18,11 @@ inline std::filesystem::path get_resource_dir() {
 }
 
 constexpr int UR_NUM_AXES = 6;
-constexpr int UR_NUM_MODELS = UR_NUM_AXES + 2; // 6 axes/links plus base and tool
+// constexpr int UR_NUM_MODELS = UR_NUM_AXES + 2; // 6 axes/links plus base and tool
+constexpr int UR_NUM_MODELS = UR_NUM_AXES + 4; // 6 axes/links plus base, tool, 2 fingers
 
 constexpr std::array<std::string_view, UR_NUM_MODELS> UR_MODEL_LABELS = {
-    "Base", "Shoulder", "Upperarm", "Forearm", "Wrist1", "Wrist2", "Wrist3", "Tool",
+    "Base", "Shoulder", "Upperarm", "Forearm", "Wrist1", "Wrist2", "Wrist3", "Tool", "LeftFinger", "RightFinger"
 };
 
 enum class URVersion : int {
@@ -59,6 +60,8 @@ class UR {
     RLModel wrist2_;
     RLModel wrist3_;
     RLModel tool_;
+    RLModel finger_left_;
+    RLModel finger_right_;
 };
 
 namespace UR3e {
@@ -76,7 +79,13 @@ const Matrix T45 = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.085), MatrixRotate
 
 const Matrix T56 = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.072), MatrixRotateXYZ({PI / 2, 0.0, 0.0}));
 
-const Matrix T6TOOL = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.10), MatrixRotateXYZ({0.0, 0.0, PI / 2}));
+// const Matrix T6TOOL = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.10), MatrixRotateXYZ({0.0, 0.0, PI / 2}));
+const Matrix T6TOOL = MatrixMultiply(MatrixTranslate(0.0, 0.02, 0.0), MatrixRotateXYZ({PI/2, PI/2, 0.0}));
+
+const Matrix TOOLFL = MatrixMultiply(MatrixTranslate(0.0, 0.02, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
+
+const Matrix TOOLFR = MatrixMultiply(MatrixTranslate(0.0, -0.02, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
+
 } // namespace UR3e
 
 namespace UR5e {

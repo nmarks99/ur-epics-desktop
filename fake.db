@@ -1,0 +1,43 @@
+record(ao, "test:UR:Receive:Joint1") {
+    field(VAL, 0.0)
+    field(PREC, 4)
+}
+record(ao, "test:UR:Receive:Joint2") {
+    field(VAL, 0.0)
+    field(PREC, 4)
+}
+record(ao, "test:UR:Receive:Joint3") {
+    field(VAL, 0.0)
+    field(PREC, 4)
+}
+record(ao, "test:UR:Receive:Joint4") {
+    field(VAL, 0.0)
+    field(PREC, 4)
+}
+record(ao, "test:UR:Receive:Joint5") {
+    field(VAL, 0.0)
+    field(PREC, 4)
+}
+record(ao, "test:UR:Receive:Joint6") {
+    field(VAL, 0.0)
+    field(PREC, 4)
+}
+record(waveform, "test:UR:Receive:ActualJointPositions") {
+    field(NELM, 6)
+    field(FTVL, "DOUBLE")
+    field(INP, "{const: [-90, -70, -100, -90, 90, 0]}")
+}
+
+record(bo, "test:UR:RobotiqGripper:Open") {}
+record(bo, "test:UR:RobotiqGripper:Close") {}
+record(bo, "test:UR:RobotiqGripper:IsOpen") {}
+record(bo, "test:UR:Control:JogStart") {}
+record(bo, "test:UR:Control:JogStop") {}
+record(bo, "test:UR:Control:JogSpeedX") {}
+record(bo, "test:UR:Control:JogSpeedY") {}
+record(bo, "test:UR:Control:JogSpeedZ") {}
+record(bo, "test:UR:Control:JogSpeedRoll") {}
+record(bo, "test:UR:Control:JogSpeedPitch") {}
+record(bo, "test:UR:Control:JogSpeedYaw") {}
+
+record(bo, "test:UR:Dashboard:UnlockProtectiveStop") {}

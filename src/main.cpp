@@ -39,12 +39,12 @@ class RobotRenderer {
         SetTextureFilter(view_texture_.texture, TEXTURE_FILTER_BILINEAR);
 
 
-        // 1. Load image into CPU RAM
-        Image img = LoadImage("robotiq_handE_screenshot-crop.png");
-        gripper_img_.width = img.width;
-        gripper_img_.height = img.height;
-        gripper_img_.texture = LoadTextureFromImage(img);
-        UnloadImage(img);
+        // // 1. Load image into CPU RAM
+        // Image img = LoadImage("robotiq_handE_screenshot-crop.png");
+        // gripper_img_.width = img.width;
+        // gripper_img_.height = img.height;
+        // gripper_img_.texture = LoadTextureFromImage(img);
+        // UnloadImage(img);
     }
 
     ~RobotRenderer() {
@@ -79,7 +79,9 @@ class RobotRenderer {
             ClearBackground(RAYWHITE);
             // Draw ------------------------
             BeginMode3D(cam_.camera);
-            robot_model_.draw(0, !pv_connected);
+            // robot_model_.draw(0, !pv_connected);
+            robot_model_.draw(0, false);
+            robot_model_.draw_axes(0b1100000000);
             DrawGrid(10, 0.25f);
             EndMode3D();
 
@@ -231,24 +233,24 @@ class Application {
             layout_initialized_ = true;
         }
 
-        // Popup if any PVs are disconnected
-        if (!ctxt_.all_connected()) {
-            ImGui::OpenPopup("PV(s) Disconnected");
-        }
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
-                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
-        {
-            ImGui::Text("One or more PVs are not connected.");
-            ImGui::Separator();
-
-            bool connected = ctxt_.all_connected();
-            if (connected) {
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
-        }
+        // // Popup if any PVs are disconnected
+        // if (!ctxt_.all_connected()) {
+            // ImGui::OpenPopup("PV(s) Disconnected");
+        // }
+        // ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        // ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        // if (ImGui::BeginPopupModal("PV(s) Disconnected", nullptr,
+                // ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+        // {
+            // ImGui::Text("One or more PVs are not connected.");
+            // ImGui::Separator();
+//
+            // bool connected = ctxt_.all_connected();
+            // if (connected) {
+                // ImGui::CloseCurrentPopup();
+            // }
+            // ImGui::EndPopup();
+        // }
 
         draw_robot_window();
         draw_controls_window();

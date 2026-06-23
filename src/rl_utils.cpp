@@ -3,7 +3,8 @@
 #include "raymath.h"
 #include "rcamera.h"
 
-constexpr double AXES_THICKNESS = 0.0075;
+// constexpr double AXES_THICKNESS = 0.0075;
+constexpr double AXES_THICKNESS = 0.0030;
 
 void draw_axes_3d(float thickness, Matrix transform);
 

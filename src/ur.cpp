@@ -18,12 +18,12 @@ std::array<Matrix, UR_NUM_MODELS> get_tfs(URVersion version) {
     switch (version) {
     case URVersion::UR3e:
         tfs = {
-            UR3e::TSBASE, UR3e::TB1, UR3e::T12, UR3e::T23, UR3e::T34, UR3e::T45, UR3e::T56, UR3e::T6TOOL,
+            UR3e::TSBASE, UR3e::TB1, UR3e::T12, UR3e::T23, UR3e::T34, UR3e::T45, UR3e::T56, UR3e::T6TOOL, UR3e::TOOLFL, UR3e::TOOLFR,
         };
         break;
     case URVersion::UR5e:
         tfs = {
-            UR5e::TSBASE, UR5e::TB1, UR5e::T12, UR5e::T23, UR5e::T34, UR5e::T45, UR5e::T56, UR5e::T6TOOL,
+            UR5e::TSBASE, UR5e::TB1, UR5e::T12, UR5e::T23, UR5e::T34, UR5e::T45, UR5e::T56, UR5e::T6TOOL, UR3e::TOOLFL, UR3e::TOOLFR
         };
         break;
     }
@@ -39,8 +39,9 @@ UR::UR(URVersion version)
       wrist1_(model_dir_ / "wrist1.obj", UR_MODEL_LABELS.at(4).data()),
       wrist2_(model_dir_ / "wrist2.obj", UR_MODEL_LABELS.at(5).data()),
       wrist3_(model_dir_ / "wrist3.obj", UR_MODEL_LABELS.at(6).data()),
-      tool_(model_dir_ / "../robotiq-hand-e.obj", UR_MODEL_LABELS.at(7).data())
-{
+      tool_(model_dir_ / "../robotiq/robotiq_hand-e_body.obj", UR_MODEL_LABELS.at(7).data()),
+      finger_left_(model_dir_ / "../robotiq/robotiq_hand-e_finger-left.obj", UR_MODEL_LABELS.at(8).data()),
+      finger_right_(model_dir_ / "../robotiq/robotiq_hand-e_finger-right.obj", UR_MODEL_LABELS.at(9).data()) {
 
     version_ = version;
     model_dir_ = get_model_dir(version);
@@ -54,7 +55,7 @@ UR::UR(URVersion version)
     }
 }
 
-void UR::update(const std::vector<double> &joint_angles) {
+void UR::update(const std::vector<double>& joint_angles) {
     shoulder_.model.transform =
         MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(0)), tfs_.at(1)), base_.model.transform);
     upperarm_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(1)), tfs_.at(2)),
@@ -68,15 +69,17 @@ void UR::update(const std::vector<double> &joint_angles) {
     wrist3_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(5)), tfs_.at(6)),
                                              wrist2_.model.transform);
     tool_.model.transform = MatrixMultiply(tfs_.at(7), wrist3_.model.transform);
+    finger_left_.model.transform = MatrixMultiply(tfs_.at(8), tool_.model.transform);
+    finger_right_.model.transform = MatrixMultiply(tfs_.at(9), tool_.model.transform);
 }
 
 void UR::draw() {
-    for_each_model([](RLModel &model) { model.draw(); });
+    for_each_model([](RLModel& model) { model.draw(); });
 }
 
 void UR::draw(int mask, bool opaque) {
     int i = 0;
-    for_each_model([&](RLModel &model) {
+    for_each_model([&](RLModel& model) {
         if (mask & (1 << i)) {
             if (opaque) {
                 model.draw_wires(ColorAlpha(WHITE, 0.5));
@@ -95,12 +98,12 @@ void UR::draw(int mask, bool opaque) {
 }
 
 void UR::draw_axes() {
-    for_each_model([](RLModel &model) { model.draw_axes(); });
+    for_each_model([](RLModel& model) { model.draw_axes(); });
 }
 
 void UR::draw_axes(int mask) {
     int i = 0;
-    for_each_model([&](RLModel &model) {
+    for_each_model([&](RLModel& model) {
         if (mask & (1 << i)) {
             model.draw_axes();
         }
@@ -108,7 +111,7 @@ void UR::draw_axes(int mask) {
     });
 }
 
-RLModel &UR::at(int i) {
+RLModel& UR::at(int i) {
     switch (i) {
     case 0:
         return base_;
@@ -126,7 +129,11 @@ RLModel &UR::at(int i) {
         return wrist3_;
     case 7:
         return tool_;
+    case 8:
+        return finger_left_;
+    case 9:
+        return finger_right_;
     default:
-        throw std::out_of_range("Index must be 0 to 7");
+        throw std::out_of_range("Index must be 0 to 9");
     }
 }
