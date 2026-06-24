@@ -37,7 +37,7 @@ class UR {
     void draw(int mask, bool opaque = false);
     void draw_axes();
     void draw_axes(int mask);
-    void update(const std::vector<double> &joint_angles);
+    void update(const std::vector<double> &joint_angles, double gripper_pos);
 
   private:
     RLModel &at(int index);
@@ -82,9 +82,11 @@ const Matrix T56 = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.072), MatrixRotate
 // const Matrix T6TOOL = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.10), MatrixRotateXYZ({0.0, 0.0, PI / 2}));
 const Matrix T6TOOL = MatrixMultiply(MatrixTranslate(0.0, 0.02, 0.0), MatrixRotateXYZ({PI/2, PI/2, 0.0}));
 
-const Matrix TOOLFL = MatrixMultiply(MatrixTranslate(0.0, 0.02, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
+// const Matrix TOOLFL = MatrixMultiply(MatrixTranslate(0.0, 0.02, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
+const Matrix TOOLFL = MatrixMultiply(MatrixTranslate(0.0, 0.0, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
 
-const Matrix TOOLFR = MatrixMultiply(MatrixTranslate(0.0, -0.02, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
+// const Matrix TOOLFR = MatrixMultiply(MatrixTranslate(0.0, -0.02, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
+const Matrix TOOLFR = MatrixMultiply(MatrixTranslate(0.0, -0.0, 0.093), MatrixRotateXYZ({-PI/2, 0.0, 0.0}));
 
 } // namespace UR3e
 

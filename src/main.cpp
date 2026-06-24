@@ -52,7 +52,7 @@ class RobotRenderer {
         UnloadTexture(gripper_img_.texture);
     }
 
-    void update(const std::vector<double>& joints, double pose_z, bool needs_update, bool window_active, bool pv_connected) {
+    void update(const std::vector<double>& joints, double pose_z, double gripper_pos, bool needs_update, bool window_active, bool pv_connected) {
         if (view_width_ > 0 && view_height_ > 0) {
             if (view_texture_.texture.width != view_width_ || view_texture_.texture.height != view_height_) {
                 UnloadRenderTexture(view_texture_);
@@ -71,7 +71,7 @@ class RobotRenderer {
                 for (size_t i = 0; i < joints.size(); i++) {
                     joints_rad[i] = joints[i] * M_PI / 180.0;
                 }
-                robot_model_.update(joints_rad);
+                robot_model_.update(joints_rad, gripper_pos);
             }
 
 
@@ -79,9 +79,9 @@ class RobotRenderer {
             ClearBackground(RAYWHITE);
             // Draw ------------------------
             BeginMode3D(cam_.camera);
-            // robot_model_.draw(0, !pv_connected);
-            robot_model_.draw(0, false);
-            robot_model_.draw_axes(0b1100000000);
+            robot_model_.draw(0, !pv_connected);
+            // robot_model_.draw(0, false);
+            // robot_model_.draw_axes(0b1100000000);
             DrawGrid(10, 0.25f);
             EndMode3D();
 
@@ -164,6 +164,7 @@ class Application {
         ctxt_.connect(P_ + "UR:Receive:ActualJointPositions.VAL").bind(epics_.joint_angles);
         ctxt_.connect(P_ + "UR:RobotiqGripper:IsOpen.RVAL").bind(epics_.gripper_open);
         ctxt_.connect(P_ + "UR:RobotiqGripper:IsClosed.RVAL").bind(epics_.gripper_closed);
+        ctxt_.connect(P_ + "UR:RobotiqGripper:CurrentPosition.VAL").bind(epics_.gripper_pos);
         ctxt_.connect(P_ + "UR:Receive:PoseZ.VAL").bind(epics_.pose_z);
         ctxt_.connect(P_ + "UR:Receive:SafetyStatusBits.VAL").bind(epics_.safety_status_bits);
         ctxt_.connect(P_ + "m1.VAL").bind(epics_.m1_val);
@@ -209,6 +210,7 @@ class Application {
         double m1_val = 0.0;
         double m1_twv = 0.0;
         double m1_rbv = 0.0;
+        double gripper_pos = 0.0;
         std::string m1_desc;
     } epics_;
 
@@ -216,7 +218,7 @@ class Application {
     void update() {
         bool new_epics_data = ctxt_.sync();
         auto connected = ctxt_[P_ + "UR:Receive:ActualJointPositions.VAL"].connected();
-        robot_renderer_.update(epics_.joint_angles, epics_.pose_z, new_epics_data, active_window_==ActiveWindow::Robot, connected);
+        robot_renderer_.update(epics_.joint_angles, epics_.pose_z, epics_.gripper_pos, new_epics_data, active_window_==ActiveWindow::Robot, connected);
     }
 
     // render 3D robot model to 2D texture, draw ImGui
