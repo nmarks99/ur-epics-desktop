@@ -92,7 +92,7 @@ void RLCamera3D::update() {
         CameraMoveToTarget(&camera, -2.0f);
 
     // rotate around the target when clicking the scroll wheel
-    if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
+    if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
         Vector2 mousePositionDelta = GetMouseDelta();
         CameraYaw(&camera, -mousePositionDelta.x * CAMERA_MOUSE_MOVE_SENSITIVITY, rotateAroundTarget);
         CameraPitch(&camera, -mousePositionDelta.y * CAMERA_MOUSE_MOVE_SENSITIVITY, lockView,
