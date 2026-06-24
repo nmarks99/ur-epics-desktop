@@ -69,7 +69,7 @@ void UR::update(const std::vector<double>& joint_angles, double gripper_pos) {
     wrist3_.model.transform = MatrixMultiply(MatrixMultiply(MatrixRotateZ(joint_angles.at(5)), tfs_.at(6)),
                                              wrist2_.model.transform);
     tool_.model.transform = MatrixMultiply(tfs_.at(7), wrist3_.model.transform);
-    gripper_pos = gripper_pos * 0.025;
+    gripper_pos = (1.0-gripper_pos) * 0.025;
     finger_left_.model.transform = MatrixMultiply(MatrixTranslate(0.0, gripper_pos, 0.0), MatrixMultiply(tfs_.at(8), tool_.model.transform));
     finger_right_.model.transform = MatrixMultiply(MatrixTranslate(0.0, -gripper_pos, 0.0), MatrixMultiply(tfs_.at(9), tool_.model.transform));
 }
