@@ -15,17 +15,17 @@ constexpr int TARGET_FPS = 60;
 constexpr double FRAME_TIME = 1.0 / TARGET_FPS;
 
 constexpr std::array<const char*, 11> safety_mode_labels = {
-    "Normal",
-    "Reduced",
+    "Normal            ",
+    "Reduced           ",
     "Protective Stopped",
-    "Recovery Mode",
-    "Safeguard Stopped",
-    "System Emergency Stopped",
-    "Robot Emergency Stopped",
-    "Emergency Stopped",
-    "Violation",
-    "Fault",
-    "Stopped Due to Safety",
+    "Recovery Mode     ",
+    "Safeguard Stopped ",
+    "System E-Stopped  ",
+    "Robot E-Stopped   ",
+    "Emergency Stopped ",
+    "Violation         ",
+    "Fault             ",
+    "Stopped for Safety",
 };
 
 class RobotRenderer {
@@ -425,6 +425,7 @@ class Application {
             }
             ImGui::SameLine();
             ImGui::Text("Done");
+            ImGui::NewLine();
 
             for (size_t i = 0; i < safety_mode_labels.size()-1; i++) {
                 if (epics_.safety_status_bits & (1 << i)) {
