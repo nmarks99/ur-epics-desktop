@@ -8,6 +8,8 @@
 #include "rl_utils.hpp"
 #include "ur.hpp"
 
+const std::string IMAGE_DATA_DIR="/home/nmarks/open-house/oh26/iocBoot/iocoh26/data";
+
 enum class ActiveWindow { Robot, Controls, Sidebar };
 enum class JogDir { Up, Down, Left, Right, Forward, Backward };
 
@@ -140,37 +142,34 @@ class Application {
         auto font = io.Fonts->AddFontFromFileTTF(font_ttf_path.c_str());
         io.FontDefault = font;
 
-        // Set up EPICS connection
-        // These are PVs we only need to write to
-        ctxt_.connect(P_, {
-            "UR:Control:JogStart.PROC",
-            "UR:Control:JogStop.PROC",
-            "UR:Control:JogSpeedX.VAL",
-            "UR:Control:JogSpeedY.VAL",
-            "UR:Control:JogSpeedZ.VAL",
-            "UR:Control:JogSpeedRoll.VAL",
-            "UR:Control:JogSpeedPitch.VAL",
-            "UR:Control:JogSpeedYaw.VAL",
-            "UR:RobotiqGripper:Open.PROC",
-            "UR:RobotiqGripper:Close.PROC",
-            "UR:ClearFault.PROC",
-            "UR:Receive:PoseZ.VAL",
-            "m1.TWR",
-            "m1.TWF",
-            "m1.STOP"
-        });
-
-        // These are PVs we need to monitor
-        ctxt_.connect(P_ + "UR:Receive:ActualJointPositions.VAL").bind(epics_.joint_angles);
-        ctxt_.connect(P_ + "UR:RobotiqGripper:IsOpen.RVAL").bind(epics_.gripper_open);
-        ctxt_.connect(P_ + "UR:RobotiqGripper:IsClosed.RVAL").bind(epics_.gripper_closed);
-        ctxt_.connect(P_ + "UR:RobotiqGripper:CurrentPosition.VAL").bind(epics_.gripper_pos);
-        ctxt_.connect(P_ + "UR:Receive:PoseZ.VAL").bind(epics_.pose_z);
-        ctxt_.connect(P_ + "UR:Receive:SafetyStatusBits.VAL").bind(epics_.safety_status_bits);
+        // Connect to all the EPICS PVs we will need
+        ctxt_.connect(P_ + "UR:Control:JogStart.PROC");
+        ctxt_.connect(P_ + "UR:Control:JogStop.PROC");
+        ctxt_.connect(P_ + "UR:Control:JogSpeedX.VAL");
+        ctxt_.connect(P_ + "UR:Control:JogSpeedY.VAL");
+        ctxt_.connect(P_ + "UR:Control:JogSpeedZ.VAL");
+        ctxt_.connect(P_ + "UR:Control:JogSpeedRoll.VAL");
+        ctxt_.connect(P_ + "UR:Control:JogSpeedPitch.VAL");
+        ctxt_.connect(P_ + "UR:Control:JogSpeedYaw.VAL");
+        ctxt_.connect(P_ + "UR:Control:Connected").bind(epics_.control_connected);
+        ctxt_.connect(P_ + "UR:RobotiqGripper:Open.PROC");
+        ctxt_.connect(P_ + "UR:RobotiqGripper:Close.PROC");
+        ctxt_.connect(P_ + "UR:ClearFault.PROC");
+        ctxt_.connect(P_ + "UR:Receive:PoseZ.VAL");
+        ctxt_.connect(P_ + "m1.TWR");
+        ctxt_.connect(P_ + "m1.TWF");
+        ctxt_.connect(P_ + "m1.STOP");
         ctxt_.connect(P_ + "m1.VAL").bind(epics_.m1_val);
         ctxt_.connect(P_ + "m1.TWV").bind(epics_.m1_twv);
         ctxt_.connect(P_ + "m1.RBV").bind(epics_.m1_rbv);
         ctxt_.connect(P_ + "m1.DESC").bind(epics_.m1_desc);
+        ctxt_.connect(P_ + "scan2.EXSC");
+        ctxt_.connect(P_ + "AbortScans.PROC");
+        ctxt_.connect(P_ + "scan2.BUSY").bind(epics_.scan2_busy);
+        ctxt_.connect(P_ + "UR:Receive:ActualJointPositions.VAL").bind(epics_.joint_angles);
+        ctxt_.connect(P_ + "UR:Receive:PoseZ.VAL").bind(epics_.pose_z);
+        ctxt_.connect(P_ + "UR:Receive:SafetyStatusBits.VAL").bind(epics_.safety_status_bits);
+        ctxt_.connect(P_ + "UR:RobotiqGripper:CurrentPosition.VAL").bind(epics_.gripper_pos);
     }
 
     void run() {
@@ -204,13 +203,15 @@ class Application {
     struct EPICSMonitorValues {
         std::vector<double> joint_angles = std::vector<double>(UR_NUM_AXES, 0.0);
         double pose_z = 0.0;
-        int gripper_open = 1;
-        int gripper_closed = 0;
+        // int gripper_open = 1;
+        // int gripper_closed = 0;
         int safety_status_bits = 1;
         double m1_val = 0.0;
         double m1_twv = 0.0;
         double m1_rbv = 0.0;
         double gripper_pos = 0.0;
+        int scan2_busy = 0;
+        int control_connected = 0;
         std::string m1_desc;
     } epics_;
 
@@ -357,6 +358,11 @@ class Application {
             ImGui::TableNextRow();
 
             // Column 1: jog pad + gripper /////////////////////////
+            static bool need_to_clear_disabled = false;
+            if (!epics_.control_connected) {
+                ImGui::BeginDisabled();
+                need_to_clear_disabled = true;
+            }
             ImGui::TableNextColumn();
 
             if (ImGui::BeginTable("jog_table", 7, table_flags)) {
@@ -402,15 +408,19 @@ class Application {
             if (ImGui::Button("Close", ImVec2(100, 0))) {
                 ctxt_.put(P_ + "UR:RobotiqGripper:Close.PROC", 1);
             }
-            ImGui::SameLine();
-            ImGui::Spacing();
-            ImGui::SameLine();
-            if (epics_.gripper_open) {
-                ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Open  ");
-            } else if (epics_.gripper_closed) {
-                ImGui::TextColored({1.0, 0.0, 0.0, 1.0}, "Closed");
-            } else {
-                ImGui::TextColored({1.0, 1.0, 1.0, 1.0}, "      ");
+            // ImGui::SameLine();
+            // ImGui::Spacing();
+            // ImGui::SameLine();
+            // if (epics_.gripper_open) {
+                // ImGui::TextColored({0.0, 1.0, 0.0, 1.0}, "Open  ");
+            // } else if (epics_.gripper_closed) {
+                // ImGui::TextColored({1.0, 0.0, 0.0, 1.0}, "Closed");
+            // } else {
+                // ImGui::TextColored({1.0, 1.0, 1.0, 1.0}, "      ");
+            // }
+            if (need_to_clear_disabled) {
+                need_to_clear_disabled = false;
+                ImGui::EndDisabled();
             }
 
             // Column 2: spacer ////////////////////////////////////
@@ -419,12 +429,29 @@ class Application {
             // Column 3: safety status + clear fault ////////////////
             ImGui::TableNextColumn();
 
-            if (ImGui::Button("SCAN##start_scan", {120.0, 40.0})) {
-                // TODO:
-                // ctxt_.put(P_ + "UR:ClearFault.PROC", 1);
+            if (ImGui::Button("SCAN##start_scan", {100.0, 0.0})) {
+                ctxt_.put(P_ + "scan2.EXSC", 1);
             }
+            if (epics_.scan2_busy) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+                ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), ImVec2(0.0f, 0.0f), "Scanning..");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+            if (ImGui::Button("ABORT##abort_scan", {100.0, 0.0})) {
+                ctxt_.put(P_ + "AbortScans.PROC", 1);
+            }
+            ImGui::PopStyleColor(2);
+
             ImGui::SameLine();
-            ImGui::Text("Done");
+            if (ImGui::Button("  ##open_video", {50.0, 0.0})) {
+                std::string cmd = "/bin/bash " + IMAGE_DATA_DIR + "/play_latest.sh";
+                std::system(cmd.c_str());
+            }
+
             ImGui::NewLine();
 
             for (size_t i = 0; i < safety_mode_labels.size()-1; i++) {
